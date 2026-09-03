@@ -24,6 +24,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
     Function that handles startup and shutdown events.
     To understand more, read https://fastapi.tiangolo.com/advanced/events/
+
+    close() releases the engine permanently, so this application object
+    supports a single lifespan cycle per process.
     """
     yield
     if sessionmanager._engine is not None:
@@ -32,6 +35,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 app = FastAPI(
+    lifespan=lifespan,
     title=settings.PROJECT_NAME,
     description=settings.PROJECT_DESCRIPTION,
     version=settings.VERSION,
