@@ -1,5 +1,5 @@
 import secrets
-from typing import cast, Optional, Any
+from typing import Any, Optional, cast
 
 import pytest
 import pytest_asyncio
@@ -44,7 +44,7 @@ async def api_token(test_user: User, session: AsyncSession) -> str:
 @pytest.mark.asyncio
 async def test_signup_success(async_client: AsyncClient) -> None:
     response = await async_client.post(
-        "auth/signup", json={"username": "newuser", "password": "pass1234"}
+        "/api/v1/auth/signup", json={"username": "newuser", "password": "pass1234"}
     )
     assert response.status_code == 201
     data = response.json()
@@ -56,7 +56,7 @@ async def test_signup_duplicate_username(
     async_client: AsyncClient, test_user: User
 ) -> None:
     response = await async_client.post(
-        "auth/signup", json={"username": "testuser", "password": "secret123"}
+        "/api/v1/auth/signup", json={"username": "testuser", "password": "secret123"}
     )
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -69,7 +69,7 @@ async def test_signup_duplicate_username(
 @pytest.mark.asyncio
 async def test_login_success(async_client: AsyncClient, test_user: User) -> None:
     response = await async_client.post(
-        "auth/login", json={"username": "testuser", "password": "secret123"}
+        "/api/v1/auth/login", json={"username": "testuser", "password": "secret123"}
     )
 
     assert response.status_code == status.HTTP_200_OK
@@ -82,7 +82,7 @@ async def test_login_success(async_client: AsyncClient, test_user: User) -> None
 @pytest.mark.asyncio
 async def test_login_invalid_credentials(async_client: AsyncClient) -> None:
     response = await async_client.post(
-        "auth/login", json={"username": "fakeuser", "password": "wrongpass"}
+        "/api/v1/auth/login", json={"username": "fakeuser", "password": "wrongpass"}
     )
 
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
@@ -102,7 +102,7 @@ async def test_token_refresh_success(
     monkeypatch.setattr("app.api.auth.refresh_access_token", mock_refresh_token)
 
     response = await async_client.post(
-        "auth/token/refresh", json={"refresh_token": refresh_token_str}
+        "/api/v1/auth/token/refresh", json={"refresh_token": refresh_token_str}
     )
 
     assert response.status_code == status.HTTP_200_OK
@@ -122,7 +122,7 @@ async def test_token_refresh_invalid(
     monkeypatch.setattr("app.api.auth.refresh_access_token", mock_refresh_token)
 
     response = await async_client.post(
-        "auth/token/refresh", json={"refresh_token": "invalid-token"}
+        "/api/v1/auth/token/refresh", json={"refresh_token": "invalid-token"}
     )
 
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
@@ -131,7 +131,9 @@ async def test_token_refresh_invalid(
 
 @pytest.mark.asyncio
 async def test_read_users_me(async_client: AsyncClient, jwt_token: str) -> None:
-    response = await async_client.get("auth/me", headers={"Authorization": jwt_token})
+    response = await async_client.get(
+        "/api/v1/auth/me", headers={"Authorization": jwt_token}
+    )
     assert response.status_code == 200
     data = response.json()
     assert "username" in data
@@ -139,7 +141,9 @@ async def test_read_users_me(async_client: AsyncClient, jwt_token: str) -> None:
 
 @pytest.mark.asyncio
 async def test_read_users_api_me(async_client: AsyncClient, api_token: str) -> None:
-    response = await async_client.get("auth/api-me", headers={"X-API-Token": api_token})
+    response = await async_client.get(
+        "/api/v1/auth/api-me", headers={"X-API-Token": api_token}
+    )
     assert response.status_code == 200
     data = response.json()
     assert "username" in data
@@ -147,11 +151,11 @@ async def test_read_users_api_me(async_client: AsyncClient, api_token: str) -> N
 
 @pytest.mark.asyncio
 async def test_me_unauthorized(async_client: AsyncClient) -> None:
-    response = await async_client.get("auth/me")
+    response = await async_client.get("/api/v1/auth/me")
     assert response.status_code == 401
 
 
 @pytest.mark.asyncio
 async def test_api_me_unauthorized(async_client: AsyncClient) -> None:
-    response = await async_client.get("auth/api-me")
+    response = await async_client.get("/api/v1/auth/api-me")
     assert response.status_code == 401

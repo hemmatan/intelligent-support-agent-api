@@ -36,7 +36,7 @@ def create_access_token(
         )
     to_encode = {"exp": expire, "sub": str(subject), "user_id": user_id}
     encoded_jwt = jwt.encode(
-        to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM
+        to_encode, settings.SECRET_KEY.get_secret_value(), algorithm=settings.ALGORITHM
     )
     return cast(str, encoded_jwt)
 
@@ -51,6 +51,6 @@ def create_refresh_token(
         expire = datetime.now() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
     to_encode = {"exp": expire, "sub": str(subject), "user_id": user_id}
     encoded_jwt = jwt.encode(
-        to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM
+        to_encode, settings.SECRET_KEY.get_secret_value(), algorithm=settings.ALGORITHM
     )
     return cast(str, encoded_jwt)

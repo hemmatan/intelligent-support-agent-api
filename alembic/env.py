@@ -10,10 +10,11 @@ invoke the migration engine.
 import asyncio
 from logging.config import fileConfig
 
-from alembic import context
-from sqlalchemy import engine_from_config, pool
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy import pool
+from sqlalchemy import Connection
+from sqlalchemy.ext.asyncio import create_async_engine
 
+from alembic import context
 from app.core.config import settings
 from app.db.base import Base
 from app.models.user import *  # Import all models here for autogenerate support
@@ -28,8 +29,8 @@ if config.config_file_name is not None:
 # Add model's MetaData object for 'autogenerate' support
 target_metadata = Base.metadata
 
-# Configure the connection string
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+# The URL is taken from settings rather than round-tripped through the ini
+# file: percent-encoded credentials collide with ConfigParser interpolation.
 
 
 def run_migrations_offline() -> None:
@@ -40,9 +41,8 @@ def run_migrations_offline() -> None:
     here as well.  By skipping the Engine creation
     we don't even need a DBAPI to be available.
     """
-    url = config.get_main_option("sqlalchemy.url")
     context.configure(
-        url=url,
+        url=settings.DATABASE_URL,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -52,7 +52,7 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
-def do_run_migrations(connection) -> None:
+def do_run_migrations(connection: Connection) -> None:
     """Run the actual migrations within a transaction context."""
     context.configure(connection=connection, target_metadata=target_metadata)
 
@@ -66,14 +66,7 @@ async def run_migrations_online() -> None:
     In this scenario we need to create an Engine
     and associate a connection with the context.
     """
-    connectable = AsyncEngine(
-        engine_from_config(
-            config.get_section(config.config_ini_section),
-            prefix="sqlalchemy.",
-            poolclass=pool.NullPool,
-            future=True,
-        )
-    )
+    connectable = create_async_engine(settings.DATABASE_URL, poolclass=pool.NullPool)
 
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)

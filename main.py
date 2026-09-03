@@ -36,12 +36,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 app = FastAPI(
     lifespan=lifespan,
+    debug=settings.DEBUG,
     title=settings.PROJECT_NAME,
     description=settings.PROJECT_DESCRIPTION,
     version=settings.VERSION,
-    openapi_url=f"{settings.API_PREFIX}/openapi.json",
-    docs_url=f"{settings.API_PREFIX}/docs",
-    redoc_url=f"{settings.API_PREFIX}/redoc",
+    openapi_url=f"{settings.API_V1_PREFIX}/openapi.json",
+    docs_url=f"{settings.API_V1_PREFIX}/docs",
+    redoc_url=f"{settings.API_V1_PREFIX}/redoc",
 )
 
 # Set up CORS
@@ -55,7 +56,9 @@ app.add_middleware(
 
 # Include routers
 app.include_router(health_router, tags=["system"])
-app.include_router(auth_router, prefix="/auth", tags=["authentication"])
+app.include_router(
+    auth_router, prefix=f"{settings.API_V1_PREFIX}/auth", tags=["authentication"]
+)
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=settings.DEBUG)

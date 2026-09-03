@@ -6,6 +6,7 @@ import contextlib
 from collections.abc import AsyncGenerator, AsyncIterator
 from typing import Any
 
+from sqlalchemy import URL
 from sqlalchemy.ext.asyncio import (
     AsyncConnection,
     AsyncEngine,
@@ -22,7 +23,7 @@ class DatabaseNotInitializedError(RuntimeError):
 
 
 class DatabaseSessionManager:
-    def __init__(self, host: str, engine_kwargs: dict[str, Any] | None = None):
+    def __init__(self, host: str | URL, engine_kwargs: dict[str, Any] | None = None):
         self._engine: AsyncEngine | None = create_async_engine(
             host, **(engine_kwargs or {})
         )

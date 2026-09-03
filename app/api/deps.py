@@ -42,7 +42,9 @@ async def get_current_user(
             raise credentials_exception
 
         payload = jwt.decode(
-            token_seg[1], settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
+            token_seg[1],
+            settings.SECRET_KEY.get_secret_value(),
+            algorithms=[settings.ALGORITHM],
         )
         token_data = TokenPayload(**payload)
         if token_data.exp and datetime.fromtimestamp(token_data.exp) < datetime.now():

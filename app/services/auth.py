@@ -37,7 +37,9 @@ async def refresh_access_token(refresh_token: str, db: AsyncSession) -> Optional
     """Create a new access token from a refresh token."""
     try:
         payload = jwt.decode(
-            refresh_token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
+            refresh_token,
+            settings.SECRET_KEY.get_secret_value(),
+            algorithms=[settings.ALGORITHM],
         )
         token_data = TokenPayload(**payload)
         if token_data.exp and datetime.fromtimestamp(token_data.exp) < datetime.now():
