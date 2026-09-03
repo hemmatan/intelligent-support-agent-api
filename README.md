@@ -83,7 +83,7 @@ access, migrations, and Docker-based development workflows.
    uv sync --extra dev --frozen
    ```
    `--frozen` installs exactly what `uv.lock` pins, so the environment matches
-   the one the tests run against. Without `uv`, a virtual environment
+   the one the tests and CI run against. Without `uv`, a virtual environment
    plus `pip install -e ".[dev]"` works, but re-resolves and may drift from the
    lock file.
 
@@ -189,6 +189,14 @@ effect even while an older access token still exists.
 ```bash
 pytest
 ```
+
+### Continuous Integration
+
+Every push to `main` and every pull request runs the same gate as
+`pre-commit`, plus two checks a local run cannot cover: the declared
+dependency floors are installed and imported (`--resolution lowest-direct`),
+and the migrations are applied and reversed. See
+[.github/workflows/ci.yml](.github/workflows/ci.yml).
 
 ### Code Quality Tools
 
