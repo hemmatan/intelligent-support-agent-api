@@ -1,17 +1,20 @@
-# FastAPI Template
+# DornaShop Support API
 
-A production-ready FastAPI template with authentication, async database operations, and Docker support.
+A FastAPI service for DornaShop's intelligent customer-support agent. The
+current foundation provides authentication, authorization, asynchronous database
+access, migrations, and Docker-based development workflows.
 
 ## Features
 
 - **Modern Python**: Type hints, async/await syntax, and the latest FastAPI features
-- **JWT Authentication**: Complete authentication system with access and refresh tokens
+- **JWT Authentication**: Short-lived access tokens and rotating, revocable refresh tokens
 - **SQLAlchemy with Async**: Fully async database operations using SQLAlchemy 2.0+
 - **Alembic Migrations**: Database schema migrations with Alembic
-- **Role-based Access Control**: User roles with different permission levels (active, staff, superuser)
-- **Docker Support**: Ready-to-use Docker and Docker Compose configurations
+- **Role Model and Authorization Foundation**: Database-backed `customer`, `support_agent` and `admin` roles, with staff enforcement available but not yet required by any endpoint
+- **Versioned API**: Public application routes are grouped under `/api/v1`
+- **Docker Development Workflow**: Containerized local setup; see the Docker section for current limitations
 - **Developer-friendly**: Auto-reload, debugging, and development tools
-- **Production-ready**: Configuration for deployment in production environments
+- **Validated Configuration**: Namespaced settings with production secret and CORS safeguards
 
 ## Project Structure
 
@@ -26,37 +29,42 @@ A production-ready FastAPI template with authentication, async database operatio
 │   ├── schemas/             # Pydantic schemas
 │   ├── services/            # Business logic
 │   └── utils/               # Utility functions
-├── docker-compose.yml       # Docker Compose for production
-├── docker-compose.dev.yml   # Docker Compose for development
-├── Dockerfile               # Docker configuration
-├── alambic.ini              # Alembic configuration
+├── docker-compose.yml       # Baseline local/demo Compose configuration
+├── docker-compose.dev.yml   # Local development configuration with reload
+├── Dockerfile               # Development-oriented application image
+├── alembic.ini              # Alembic configuration
+├── .env.example             # Documented configuration template
 ├── main.py                  # Application entry point
 ├── pyproject.toml           # Project dependencies and metadata
-├── start.sh                 # Production startup script
+├── start.sh                 # Baseline container startup script
 └── start-dev.sh             # Development startup script
 ```
 
 ## Requirements
 
 - Python 3.11+
+- [uv](https://docs.astral.sh/uv/) for the recommended setup; see [INSTALL.md](INSTALL.md)
 - Docker (optional)
 
 ## Installation
 
-### Using Docker (recommended)
+### Using Docker for local development
+
+> **Development only:** The current image and Compose configurations are for
+> local development and demonstrations. They are not production-ready yet.
 
 1. Clone the repository:
    ```bash
    git clone <your-repo-url>
-   cd fastapi-template
+   cd <repository-directory>
    ```
 
 2. Start the application with Docker Compose:
    ```bash
-   # For development
+   # Development with auto-reload
    docker-compose -f docker-compose.dev.yml up --build
 
-   # For production
+   # Baseline local run without auto-reload
    docker-compose up --build
    ```
 
@@ -67,61 +75,63 @@ A production-ready FastAPI template with authentication, async database operatio
 1. Clone the repository:
    ```bash
    git clone <your-repo-url>
-   cd fastapi-template
+   cd <repository-directory>
    ```
 
-2. Create and activate a virtual environment:
+2. Install the locked dependencies:
    ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   uv sync --extra dev --frozen
    ```
+   `--frozen` installs exactly what `uv.lock` pins, so the environment matches
+   the one the tests run against. Without `uv`, a virtual environment
+   plus `pip install -e ".[dev]"` works, but re-resolves and may drift from the
+   lock file.
 
-3. Install dependencies:
-   ```bash
-   pip install -e ".[dev]"
+3. Set up environment variables (copy `.env.example` to `.env` and edit):
    ```
-
-4. Set up environment variables (create a `.env` file):
-   ```
-   DEBUG=true
-   SECRET_KEY=your-secret-key
-   DB_ENGINE=sqlite  # or postgresql
+   DORNASHOP_ENVIRONMENT=development
+   DORNASHOP_DEBUG=true
+   DORNASHOP_SECRET_KEY=replace-with-at-least-32-random-characters
+   DORNASHOP_DB_ENGINE=sqlite  # or postgresql
    # For PostgreSQL, add these:
-   # DB_USER=postgres
-   # DB_PASSWORD=password
-   # DB_HOST=localhost
-   # DB_PORT=5432
-   # DB_NAME=app
+   # DORNASHOP_DB_USER=postgres
+   # DORNASHOP_DB_PASSWORD=password
+   # DORNASHOP_DB_HOST=localhost
+   # DORNASHOP_DB_PORT=5432
+   # DORNASHOP_DB_NAME=app
    ```
 
-5. Run migrations:
+4. Run migrations:
    ```bash
    alembic upgrade head
    ```
 
-6. Start the application:
+5. Start the application:
    ```bash
    uvicorn main:app --reload
    ```
 
-7. The API will be available at http://localhost:8000
+6. The API will be available at http://localhost:8000
 
 ## API Documentation
 
 Once the application is running, you can access:
 
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
+- Swagger UI: http://localhost:8000/api/v1/docs
+- ReDoc: http://localhost:8000/api/v1/redoc
+- OpenAPI schema: http://localhost:8000/api/v1/openapi.json
 
 ## API Endpoints
 
 ### Authentication
 
-- `POST /auth/signup` - Register a new user
-- `POST /auth/login` - Authenticate and get tokens
-- `POST /auth/token/refresh` - Refresh access token
-- `POST /auth/logout` - Logout user
-- `GET /auth/me` - Get current user information
+- `POST /api/v1/auth/signup` - Register a customer
+- `POST /api/v1/auth/login` - Authenticate and obtain access and refresh tokens
+- `POST /api/v1/auth/token/refresh` - Rotate a refresh token and obtain a new token pair
+- `POST /api/v1/auth/logout` - Revoke a refresh token
+- `GET /api/v1/auth/me` - Get the current user using an access token
+- `POST /api/v1/auth/api-tokens` - Create an API token that is stored only as a hash
+- `GET /api/v1/auth/api-me` - Get the current user using an API token
 
 ### System
 
@@ -129,22 +139,48 @@ Once the application is running, you can access:
 
 ## Configuration
 
-The application is configured through environment variables which can be set in a `.env` file:
+The application is configured through `DORNASHOP_`-prefixed environment
+variables, which can be set in a `.env` file. Unprefixed variables such as
+`DEBUG` and `SECRET_KEY` are intentionally ignored.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `DEBUG` | Enable debug mode | `true` |
-| `SECRET_KEY` | JWT secret key | `supersecretkey` |
-| `ALGORITHM` | JWT algorithm | `HS256` |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | Access token expiration time | `60` |
-| `REFRESH_TOKEN_EXPIRE_DAYS` | Refresh token expiration time | `7` |
-| `CORS_ORIGINS` | CORS allowed origins | `["*"]` |
-| `DB_ENGINE` | Database engine | `sqlite` |
-| `DB_USER` | Database user | `""` |
-| `DB_PASSWORD` | Database password | `""` |
-| `DB_HOST` | Database host | `""` |
-| `DB_PORT` | Database port | `""` |
-| `DB_NAME` | Database name | `app.db` |
+| `DORNASHOP_ENVIRONMENT` | Runtime environment: `development` or `production` | `development` |
+| `DORNASHOP_DEBUG` | Application debug configuration flag | `false` |
+| `DORNASHOP_SECRET_KEY` | JWT signing secret; production requires at least 32 characters and rejects the development default | Development-only value |
+| `DORNASHOP_ALGORITHM` | JWT signing algorithm; pinned, as the minimum secret length is chosen for it | `HS256` |
+| `DORNASHOP_JWT_ISSUER` | Expected JWT issuer | `dornashop-api` |
+| `DORNASHOP_JWT_AUDIENCE` | Expected JWT audience | `dornashop-users` |
+| `DORNASHOP_ACCESS_TOKEN_EXPIRE_MINUTES` | Access-token lifetime in minutes; must be positive | `15` |
+| `DORNASHOP_REFRESH_TOKEN_EXPIRE_DAYS` | Refresh-token lifetime in days; must be positive | `7` |
+| `DORNASHOP_CORS_ORIGINS` | JSON array or comma-separated allowed origins | Local ports `3000` and `8000` |
+| `DORNASHOP_DB_ENGINE` | Database engine: `sqlite` or `postgresql` | `sqlite` |
+| `DORNASHOP_DB_USER` | PostgreSQL user | `""` |
+| `DORNASHOP_DB_PASSWORD` | PostgreSQL password | `""` |
+| `DORNASHOP_DB_HOST` | PostgreSQL host | `""` |
+| `DORNASHOP_DB_PORT` | PostgreSQL port, `1`-`65535` | `5432` when omitted |
+| `DORNASHOP_DB_NAME` | Database name, or SQLite file path. Required for PostgreSQL | `db.sqlite3` for SQLite |
+
+In production, set `DORNASHOP_ENVIRONMENT=production`, provide a unique secret,
+and list explicit CORS origins. The application refuses to start rather than
+serve traffic with an unsafe configuration. It rejects, at startup:
+
+- the development secret, or any secret under 32 characters, in production;
+- wildcard CORS origins in production;
+- debug mode in production;
+- PostgreSQL selected without a complete set of credentials;
+- non-positive token lifetimes, out-of-range ports, and API prefixes the
+  router would refuse.
+
+## Roles
+
+- `customer`: default role for customer-facing access.
+- `support_agent`: staff role for support operations.
+- `admin`: staff role with administrative authority.
+
+Account activation is stored separately from role membership. Authorization
+reloads the user from the database so that role and activation changes take
+effect even while an older access token still exists.
 
 ## Development
 
@@ -158,20 +194,20 @@ pytest
 
 The project uses several tools to ensure code quality:
 
-- **Black**: Code formatter
-- **isort**: Import sorter
+- **Ruff**: Linting, import sorting and formatting
 - **mypy**: Static type checking
-- **pre-commit**: Git hooks for code quality checks
-
-To set up pre-commit hooks:
+- **pre-commit**: Runs both on every commit
 
 ```bash
-pre-commit install
+ruff check .          # lint
+ruff format .         # format
+mypy .                # type check
+pre-commit install    # run all of the above on each commit
 ```
 
 ## Database
 
-The template supports SQLite for development and PostgreSQL for production. The default is SQLite.
+The application supports SQLite for development and PostgreSQL for production. The default is SQLite.
 
 ### Migrations
 
@@ -189,10 +225,38 @@ alembic upgrade head
 
 ## Docker
 
-The project includes Docker configurations for both development and production:
+The current Docker setup is intentionally development-oriented:
 
-- `docker-compose.yml`: Production setup
-- `docker-compose.dev.yml`: Development setup with hot-reload
+- `docker-compose.yml`: Baseline local/demo setup without auto-reload.
+- `docker-compose.dev.yml`: Local development setup with source mounting and hot-reload.
+
+Neither is suitable for production as it stands. The image builds in a single
+stage, runs as root, and has no health check; `docker-compose.yml` bind-mounts
+the source tree. Known work before a production deployment:
+
+- A multi-stage build on `python:3.11-slim` with a non-root runtime user.
+- A `.dockerignore`, so the build context excludes `.venv/`, `.git/`, local
+  databases and any `.env`.
+- A container health check and graceful shutdown handling.
+- PostgreSQL with persistent storage and migrations run as a one-shot service.
+- A production Compose file without source-code bind mounts.
+- A production dependency set. `requirements.txt` is currently exported with
+  `--extra dev`, so the image also installs pytest, mypy, Ruff and pre-commit.
+
+## Known limitations
+
+Deliberate, and recorded rather than hidden:
+
+- **Staff authorization is defined but unused.** The `support_agent` and `admin`
+  roles and the staff dependency exist; no endpoint requires them yet. They are
+  in place for the support-agent work that follows.
+- **Refresh tokens are never pruned.** Revoked and expired rows accumulate. A
+  periodic cleanup is needed before this runs for any length of time.
+- **API-token authentication writes on every request.** Each call updates
+  `last_used_at`, so a read costs a write.
+- **Logout requires a live access token.** A client whose access token has
+  expired cannot revoke its still-valid refresh token without refreshing first.
+- The Docker limitations listed above.
 
 ## Contributing
 
