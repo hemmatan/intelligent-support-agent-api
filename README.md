@@ -258,6 +258,14 @@ Deliberate, and recorded rather than hidden:
   expired cannot revoke its still-valid refresh token without refreshing first.
 - The Docker limitations listed above.
 
+## Acknowledgements
+
+Built on a FastAPI starter template by Clément Malige, provided as the
+starting point for this project. The initial commit is that template
+unmodified; everything after it is this project's work. The template
+declared the MIT licence without including licence text, and that
+declaration is left exactly as provided.
+
 ## Contributing
 
 1. Fork the repository

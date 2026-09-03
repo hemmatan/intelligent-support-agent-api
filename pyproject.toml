@@ -3,14 +3,15 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "fastapi_template"
+name = "dornashop-support-api"
 version = "0.1.0"
-description = "A FastAPI template"
+description = "Customer support API for the DornaShop storefront"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [
-    { name = "Clément Malige" }
+    { name = "Clément Malige" },
+    { name = "Ensieh Hemmatan", email = "e.hemmatan@gmail.com" },
 ]
 dependencies = [
     "fastapi>=0.110.0",
