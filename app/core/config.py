@@ -142,12 +142,5 @@ class Settings(BaseSettings):
         """Async SQLAlchemy URL. Rendering it redacts the password by default."""
         return self._url(self.DB_NAME or SQLITE_DEFAULT_NAME)
 
-    @property
-    def TEST_DATABASE_URL(self) -> URL:
-        """Isolated database URL for tests."""
-        if self.DB_ENGINE == "sqlite":
-            return self._url(":memory:")
-        return self._url(f"{self.DB_NAME}_test")
-
 
 settings = Settings()
