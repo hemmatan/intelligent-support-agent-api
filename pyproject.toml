@@ -34,24 +34,14 @@ packages = ["app"]
 [project.optional-dependencies]
 dev = [
     "pre-commit>=4.2.0",
-    "black>=24.3.0",
     "coverage>=7.9.1",
-    "isort>=5.13.2",
     "mypy>=1.9.0",
     "pytest>=8.0.2",
     "pytest-asyncio>=0.26.0",
     "pytest-cov>=6.2.1",
     "httpx>=0.27.0",
-    "pre-commit>=3.6.2",
+    "ruff>=0.11.0,<1.0.0",
 ]
-
-[tool.isort]
-profile = "black"
-line_length = 88
-
-[tool.black]
-line-length = 88
-target-version = ["py311"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -59,13 +49,29 @@ warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
-
+# Migrations are generated code and are linted, but not type checked.
+exclude = ["^alembic/"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"
 asyncio_default_fixture_loop_scope = "function"
 
-[tool.ruff.per-file-ignores]
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+# pycodestyle, pyflakes, isort, pyupgrade, bugbear, simplify, comprehensions.
+select = ["E", "W", "F", "I", "UP", "B", "SIM", "C4"]
+
+[tool.ruff.lint.per-file-ignores]
+# Star imports register model metadata for autogenerate and fixtures.
 "alembic/env.py" = ["F403", "F401"]
 "tests/conftest.py" = ["F403", "F401"]
+
+[tool.ruff.lint.isort]
+# Declared explicitly: the local alembic/ directory would otherwise be
+# misdetected as first-party.
+known-first-party = ["app"]
+known-third-party = ["alembic"]

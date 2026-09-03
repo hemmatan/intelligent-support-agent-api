@@ -6,20 +6,19 @@ Create Date: 2025-05-22 17:02:26.821655
 
 """
 
-from typing import Sequence, Union
+from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
-
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "a8c94d2f2887"
-down_revision: Union[str, None] = None
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = None
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
-def upgrade():
+def upgrade() -> None:
     op.create_table(
         "users",
         sa.Column("id", sa.Integer(), primary_key=True, index=True),
@@ -35,6 +34,6 @@ def upgrade():
     )
 
 
-def downgrade():
+def downgrade() -> None:
     op.drop_table("api_tokens")
     op.drop_table("users")

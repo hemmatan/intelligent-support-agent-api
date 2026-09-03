@@ -3,12 +3,12 @@ LRU Cache implementation.
 """
 
 from collections import OrderedDict
-from typing import Any, Dict, Optional, TypeVar, Union, overload
+from typing import Any, TypeVar, overload
 
 _T = TypeVar("_T")
 
 
-class LRUCache(OrderedDict[str, Dict[str, Any]]):
+class LRUCache(OrderedDict[str, dict[str, Any]]):
     """Least Recently Used (LRU) cache."""
 
     def __init__(self, capacity: int):
@@ -16,12 +16,10 @@ class LRUCache(OrderedDict[str, Dict[str, Any]]):
         self._capacity = capacity
 
     @overload
-    def get(self, key: str) -> Optional[Dict[str, Any]]: ...
+    def get(self, key: str) -> dict[str, Any] | None: ...
 
     @overload
-    def get(
-        self, key: str, default: Union[Dict[str, Any], _T]
-    ) -> Union[Dict[str, Any], _T]: ...
+    def get(self, key: str, default: dict[str, Any] | _T) -> dict[str, Any] | _T: ...
 
     def get(self, key: str, default: Any = None) -> Any:
         """Get an item and mark it as recently used."""
@@ -30,7 +28,7 @@ class LRUCache(OrderedDict[str, Dict[str, Any]]):
         self.move_to_end(key)
         return self[key]
 
-    def put(self, key: str, value: Dict[str, Any]) -> None:
+    def put(self, key: str, value: dict[str, Any]) -> None:
         self[key] = value
         self.move_to_end(key)
         if len(self) > self._capacity:

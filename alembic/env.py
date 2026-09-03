@@ -10,16 +10,16 @@ invoke the migration engine.
 import asyncio
 from logging.config import fileConfig
 
-from sqlalchemy import pool
-from sqlalchemy import Connection
+from alembic import context
+from sqlalchemy import Connection, pool
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from alembic import context
 from app.core.config import settings
 from app.db.base import Base
 from app.models.user import *  # Import all models here for autogenerate support
 
-# This is the Alembic Config object, which provides access to the values within the .ini file
+# This is the Alembic Config object, which provides access to the values
+# within the .ini file
 config = context.config
 
 # Interpret the config file for Python logging
