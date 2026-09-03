@@ -3,10 +3,12 @@ Database session management.
 """
 
 import contextlib
-from typing import Any, AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
+from typing import Any
 
 from sqlalchemy.ext.asyncio import (
     AsyncConnection,
+    AsyncEngine,
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
@@ -15,14 +17,28 @@ from sqlalchemy.ext.asyncio import (
 from app.core.config import settings
 
 
+class DatabaseNotInitializedError(RuntimeError):
+    """Raised when a closed session manager is reused."""
+
+
 class DatabaseSessionManager:
-    def __init__(self, host: str, engine_kwargs: dict[str, Any] = {}):
-        self._engine = create_async_engine(host, **engine_kwargs)
-        self._sessionmaker = async_sessionmaker(autocommit=False, bind=self._engine)
+    def __init__(self, host: str, engine_kwargs: dict[str, Any] | None = None):
+        self._engine: AsyncEngine | None = create_async_engine(
+            host, **(engine_kwargs or {})
+        )
+        self._sessionmaker: async_sessionmaker[AsyncSession] | None = (
+            async_sessionmaker(
+                autocommit=False,
+                expire_on_commit=False,
+                bind=self._engine,
+            )
+        )
 
     async def close(self) -> None:
         if self._engine is None:
-            raise Exception("DatabaseSessionManager is not initialized")
+            raise DatabaseNotInitializedError(
+                "DatabaseSessionManager is not initialized"
+            )
         await self._engine.dispose()
 
         self._engine = None
@@ -31,7 +47,9 @@ class DatabaseSessionManager:
     @contextlib.asynccontextmanager
     async def connect(self) -> AsyncIterator[AsyncConnection]:
         if self._engine is None:
-            raise Exception("DatabaseSessionManager is not initialized")
+            raise DatabaseNotInitializedError(
+                "DatabaseSessionManager is not initialized"
+            )
 
         async with self._engine.begin() as connection:
             try:
@@ -43,7 +61,9 @@ class DatabaseSessionManager:
     @contextlib.asynccontextmanager
     async def session(self) -> AsyncIterator[AsyncSession]:
         if self._sessionmaker is None:
-            raise Exception("DatabaseSessionManager is not initialized")
+            raise DatabaseNotInitializedError(
+                "DatabaseSessionManager is not initialized"
+            )
 
         session = self._sessionmaker()
         try:
