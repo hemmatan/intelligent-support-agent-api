@@ -4,6 +4,9 @@ A FastAPI service for DornaShop's intelligent customer-support agent. The
 current foundation provides authentication, authorization, asynchronous database
 access, migrations, and Docker-based development workflows.
 
+The agent's design and the reasoning behind it are in
+[docs/architecture.md](docs/architecture.md).
+
 ## Features
 
 - **Modern Python**: Type hints, async/await syntax, and the latest FastAPI features
@@ -34,6 +37,7 @@ access, migrations, and Docker-based development workflows.
 ├── Dockerfile               # Development-oriented application image
 ├── alembic.ini              # Alembic configuration
 ├── .env.example             # Documented configuration template
+├── docs/architecture.md     # Support-agent design decisions
 ├── main.py                  # Application entry point
 ├── pyproject.toml           # Project dependencies and metadata
 ├── start.sh                 # Baseline container startup script
