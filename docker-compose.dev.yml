@@ -9,4 +9,5 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DEBUG=true
+      - DORNASHOP_ENVIRONMENT=development
+      - DORNASHOP_DEBUG=true

@@ -4,31 +4,22 @@
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-# Create virtual env
+# Install the project
+
+`uv sync` creates `.venv` and installs exactly what `uv.lock` pins. Use
+`--frozen` so the environment matches the one the tests run against.
 
 ```sh
-# uv supports creating virtual environments, e.g., to create a virtual environment at .venv
-uv venv
-# A specific name or path can be specified, e.g., to create a virtual environment at my-name
-uv venv my-name
-# A Python version can be requested, e.g., to create a virtual environment with Python 3.11
-uv venv --python 3.11
+uv sync --extra dev --frozen
 ```
 
-# Install packages from pyproject.toml
-
-```sh
-#Install from a pyproject.toml file (recommended)
-uv pip install -r pyproject.toml
-#Install from a requirements.txt file
-uv pip install -r requirements.txt
-```
+Omit `--extra dev` for runtime dependencies only. Drop `--frozen` only when you
+intend to re-resolve, which updates `uv.lock`.
 
 # Run the app
 
 ```sh
-# Don't forget to activate virtual envirnoment
-python main.py
+uv run python main.py
 ```
 
 # Adding Packages to pyproject.toml
@@ -49,16 +40,14 @@ alembic revision --autogenerate
 alembic upgrade head
 ```
 
-# Freeze env in requirments.txt file
+# Regenerate requirements.txt from the lock file
+
+`uv pip compile` re-resolves and drifts from `uv.lock`. Export instead, so the
+pinned versions match exactly:
 
 ```sh
-uv pip compile pyproject.toml -o requirements.txt
-```
-
-# Download optional/dev deps
-
-```sh
-uv sync --extra dev
+uv export --frozen --format requirements-txt --extra dev \
+  --no-hashes --no-emit-project --output-file requirements.txt
 ```
 
 # run all tests

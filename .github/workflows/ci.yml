@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # --frozen fails if uv.lock and pyproject.toml disagree, so drift
+      # between them breaks the build rather than being resolved silently.
+      - name: Install locked dependencies
+        run: uv sync --extra dev --frozen
+
+      - name: Lint
+        run: uv run --frozen ruff check .
+
+      - name: Format
+        run: uv run --frozen ruff format --check .
+
+      - name: Type check
+        run: uv run --frozen mypy .
+
+      - name: Test
+        run: uv run --frozen pytest
+
+      # The declared floor is what a reader installing from pyproject.toml
+      # alone resolves; the lock file cannot prove it is correct.
+      - name: Verify declared dependency floors
+        run: |
+          uv venv /tmp/floor
+          VIRTUAL_ENV=/tmp/floor uv pip install --resolution lowest-direct -r pyproject.toml
+          /tmp/floor/bin/python -c "import main"
+
+      - name: Migrations apply and reverse
+        run: |
+          uv run --frozen alembic upgrade head
+          uv run --frozen alembic check
+          uv run --frozen alembic downgrade base

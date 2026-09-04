@@ -1,46 +1,35 @@
-"""
-User schemas for request and response validation.
-"""
+"""User request and response schemas."""
 
-from typing import Optional
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr
+from pydantic import BaseModel, ConfigDict, Field
 
-
-class UserBase(BaseModel):
-    """Base user schema with common attributes."""
-
-    username: str
+from app.models.user import UserRole
 
 
-class UserCreate(UserBase):
-    """Schema for user creation."""
-
-    password: str
+class UserCreate(BaseModel):
+    username: str = Field(min_length=3, max_length=50, pattern=r"^[A-Za-z0-9_.-]+$")
+    password: str = Field(min_length=8, max_length=128)
+    preferred_locale: Literal["en", "fr"] = "en"
 
 
 class UserLogin(BaseModel):
-    """Schema for user login."""
-
     username: str
     password: str
 
 
 class UserUpdate(BaseModel):
-    """Schema for user update."""
-
-    username: Optional[str] = None
-    email: Optional[EmailStr] = None
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
-    is_active: Optional[bool] = None
-    is_staff: Optional[bool] = None
-    is_superuser: Optional[bool] = None
+    username: str | None = Field(
+        default=None, min_length=3, max_length=50, pattern=r"^[A-Za-z0-9_.-]+$"
+    )
+    preferred_locale: Literal["en", "fr"] | None = None
 
 
-class UserOut(UserBase):
-    """Schema for user response."""
-
+class UserOut(BaseModel):
     id: int
     username: str
+    role: UserRole
+    preferred_locale: str
+    is_active: bool
+
     model_config = ConfigDict(from_attributes=True)

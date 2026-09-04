@@ -1,82 +1,94 @@
-"""
-API dependencies.
-"""
+"""FastAPI dependencies for database sessions and authentication."""
 
-from datetime import datetime
-from typing import Annotated, Optional, cast
+from datetime import UTC, datetime
+from hashlib import sha256
+from typing import Annotated
 
+import jwt
 from fastapi import Depends, HTTPException, status
-from fastapi.security import APIKeyHeader
-from jose import JWTError, jwt
+from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.config import settings
+from app.core.security import TokenType, decode_token
 from app.db.session import get_db
-from app.models.user import APIToken, User
-from app.schemas.token import TokenPayload
+from app.models.user import APIToken, User, UserRole
 
 DBSessionDep = Annotated[AsyncSession, Depends(get_db)]
+bearer_scheme = HTTPBearer(auto_error=False)
+api_key_header = APIKeyHeader(name="X-API-Token", auto_error=False)
+BearerCredentialsDep = Annotated[
+    HTTPAuthorizationCredentials | None, Depends(bearer_scheme)
+]
+APIKeyDep = Annotated[str | None, Depends(api_key_header)]
 
 
-# OAuth2 scheme for token authentication
-oauth2_scheme = APIKeyHeader(name="Authorization", auto_error=False)
-
-
-async def get_current_user(
-    db: DBSessionDep,
-    token: str = Depends(oauth2_scheme),
-) -> User:
-    """Get current user from JWT token."""
-    credentials_exception = HTTPException(
+def credentials_error() -> HTTPException:
+    return HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+
+async def get_current_user(
+    db: DBSessionDep,
+    credentials: BearerCredentialsDep,
+) -> User:
+    """Authenticate an access token and reload authoritative user state."""
+    if credentials is None:
+        raise credentials_error()
     try:
-        if not token:
-            raise credentials_exception
-        token_seg = token.split(" ")
-        if len(token_seg) != 2 or token_seg[0] != "Bearer":
-            raise credentials_exception
-
-        payload = jwt.decode(
-            token_seg[1], settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
-        )
-        token_data = TokenPayload(**payload)
-        if token_data.exp and datetime.fromtimestamp(token_data.exp) < datetime.now():
-            raise credentials_exception
-    except JWTError:
-        raise credentials_exception
-
-    result = await db.execute(select(User).filter(User.id == token_data.user_id))
-    user = cast(Optional[User], result.scalar_one_or_none())
-    if user is None:
-        raise credentials_exception
+        payload = decode_token(credentials.credentials, TokenType.ACCESS)
+        user_id = int(payload["sub"])
+    except (jwt.InvalidTokenError, KeyError, TypeError, ValueError) as exc:
+        raise credentials_error() from exc
+    user = await db.get(User, user_id)
+    if user is None or not user.is_active:
+        raise credentials_error()
     return user
 
 
 AuthUserDep = Annotated[User, Depends(get_current_user)]
 
-api_key_header = APIKeyHeader(name="X-API-Token", auto_error=False)
+
+async def get_current_staff(current_user: AuthUserDep) -> User:
+    if current_user.role not in {UserRole.SUPPORT_AGENT, UserRole.ADMIN}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Staff role required"
+        )
+    return current_user
 
 
-async def get_current_user_token(
-    db: DBSessionDep, api_token: str = Depends(api_key_header)
-) -> User:
+StaffUserDep = Annotated[User, Depends(get_current_staff)]
+
+
+async def get_current_user_token(db: DBSessionDep, api_token: APIKeyDep) -> User:
     if not api_token:
-        raise HTTPException(status_code=401, detail="API token missing")
-
+        raise credentials_error()
+    token_hash = sha256(api_token.encode("utf-8")).hexdigest()
     result = await db.execute(
         select(APIToken)
         .options(selectinload(APIToken.user))
-        .filter(APIToken.token == api_token)
+        .where(APIToken.token_hash == token_hash)
     )
-    token_record = cast(Optional[APIToken], result.scalar_one_or_none())
-    if not token_record:
-        raise HTTPException(status_code=401, detail="Invalid API token")
-    return cast(User, token_record.user)
+    record = result.scalar_one_or_none()
+    now = datetime.now(UTC)
+    if (
+        record is None
+        or record.revoked_at is not None
+        or (record.expires_at is not None and _as_utc(record.expires_at) <= now)
+        or not record.user.is_active
+    ):
+        raise credentials_error()
+    record.last_used_at = now
+    await db.commit()
+    return record.user
+
+
+def _as_utc(value: datetime) -> datetime:
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
 TokenUserDep = Annotated[User, Depends(get_current_user_token)]
