@@ -12,7 +12,6 @@ literally wrote; vectors find what they meant. Neither alone covers both.
 import logging
 import math
 import re
-import unicodedata
 from collections import Counter
 from dataclasses import dataclass
 
@@ -29,6 +28,7 @@ from app.agent.knowledge import (
     ShippingPolicyEntry,
 )
 from app.agent.reliability import ReliabilityLevel
+from app.agent.text import fold
 
 _log = logging.getLogger(__name__)
 
@@ -195,9 +195,7 @@ def tokenise(text: str) -> list[str]:
     Customers type "hygiene" for "hygiène" and the reverse, and neither should
     decide whether they find the paragraph they were looking for.
     """
-    decomposed = unicodedata.normalize("NFKD", text.casefold())
-    folded = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
-    return _WORD.findall(folded)
+    return _WORD.findall(fold(text))
 
 
 @dataclass(frozen=True)

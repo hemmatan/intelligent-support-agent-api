@@ -213,9 +213,11 @@ versus evidence that is imperfect but safe — and because tightening the bar
 later should be a routing change, not a rescoring one.
 
 The levels and the per-factor rubric for what each one means are defined in
-`app/agent/reliability.py`. The reason-code and material-claim enumerations
-belong there too when they are written, rather than being spelled out here
-where a second copy would drift.
+`app/agent/reliability.py`, and the reason codes in `app/agent/reasons.py` —
+separately, because a code explains why a request went somewhere and most of
+them have nothing to do with how reliable an answer was. The material-claim
+enumeration belongs beside them when it is written, rather than being spelled
+out here where a second copy would drift.
 
 ## Gates run before any scoring
 
@@ -333,6 +335,19 @@ prose to a customer.
 
 Sensitive-situation detection runs *before* model classification. The
 classifier may add a risk flag; it can never clear one that rules established.
+
+Four situations qualify: payment disputes, suspected fraud, account
+compromise, and legal threats. A message naming one of them escalates unless
+the sentence is asking about policy in general — and a customer describing
+their own account overrules that, since one sentence can do both. "How do you
+protect accounts when mine was hacked yesterday?" is a report.
+
+The two ways of being wrong here are not equally expensive. Sending something
+harmless to a person costs a few seconds and a slower reply; missing a real
+report costs considerably more. The rules lean that way deliberately, and
+negation is past what phrase matching can do, so "I was not charged twice"
+reaches somebody. That is a known false positive with a test naming it, not
+an oversight.
 
 ## Locale
 
