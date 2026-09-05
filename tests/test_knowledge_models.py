@@ -96,3 +96,38 @@ def test_malformed_identifiers_are_rejected() -> None:
     for bad in ["Returns.Standard", "returns", "returns..standard", ""]:
         with pytest.raises(ValidationError):
             entry(id=bad)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("version", "1"), ("approved", "yes")],
+    ids=["string-version", "string-boolean"],
+)
+def test_values_of_the_wrong_type_are_not_quietly_converted(
+    field: str, value: str
+) -> None:
+    """extra="forbid" stops unknown fields; only strict stops coercion."""
+    with pytest.raises(ValidationError):
+        entry(**{field: value})
+
+
+def test_a_number_written_as_a_string_is_rejected() -> None:
+    with pytest.raises(ValidationError):
+        entry(claims={"return_window_days": "30", "eligibility": "standard_items"})
+
+
+def test_a_delivery_range_must_run_forwards() -> None:
+    from app.agent.knowledge import ShippingPolicyClaims
+
+    with pytest.raises(ValidationError, match="greater than"):
+        ShippingPolicyClaims(
+            standard_delivery_days_min=10,
+            standard_delivery_days_max=2,
+            express_delivery_days=1,
+        )
+    with pytest.raises(ValidationError, match="slower than standard"):
+        ShippingPolicyClaims(
+            standard_delivery_days_min=2,
+            standard_delivery_days_max=3,
+            express_delivery_days=5,
+        )

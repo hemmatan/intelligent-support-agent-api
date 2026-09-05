@@ -23,11 +23,12 @@ from pydantic import (
     PositiveInt,
     TypeAdapter,
     ValidationError,
+    model_validator,
 )
 
 Locale = Literal["en", "fr"]
 
-_STRICT = ConfigDict(extra="forbid", frozen=True)
+_STRICT = ConfigDict(extra="forbid", frozen=True, strict=True)
 
 
 class PolicyKind(StrEnum):
@@ -54,6 +55,16 @@ class ShippingPolicyClaims(BaseModel):
     standard_delivery_days_min: PositiveInt
     standard_delivery_days_max: PositiveInt
     express_delivery_days: PositiveInt
+
+    @model_validator(mode="after")
+    def check_the_range_runs_forwards(self) -> "ShippingPolicyClaims":
+        if self.standard_delivery_days_min > self.standard_delivery_days_max:
+            raise ValueError(
+                "standard_delivery_days_min is greater than standard_delivery_days_max"
+            )
+        if self.express_delivery_days > self.standard_delivery_days_min:
+            raise ValueError("express delivery is slower than standard delivery")
+        return self
 
 
 class BasePolicyEntry(BaseModel):
@@ -130,6 +141,7 @@ class PolicyCorpus:
         self._entries = tuple(entries)
         self._reject_repeated_identities()
         self._reject_competing_approved_versions()
+        self._reject_approved_versions_that_disagree_across_locales()
         self._reject_numbers_absent_from_prose()
         self._reject_claims_that_differ_by_locale()
 
@@ -153,6 +165,26 @@ class PolicyCorpus:
                     f"v{approved[key]} and v{entry.version}"
                 )
             approved[key] = entry.version
+
+    def _reject_approved_versions_that_disagree_across_locales(self) -> None:
+        """Every language has to be showing the same version of a policy.
+
+        The per-locale check above allows one approved version each, and the
+        claim comparison below only runs on entries sharing a version. Between
+        them, an approved English v2 and an approved French v1 pass unnoticed
+        and quote different rules to different customers.
+        """
+        versions: dict[str, dict[str, int]] = defaultdict(dict)
+        for entry in self._entries:
+            if entry.approved:
+                versions[entry.id][entry.locale] = entry.version
+        for policy_id, by_locale in versions.items():
+            if len(set(by_locale.values())) > 1:
+                stated = ", ".join(
+                    f"{locale} v{version}"
+                    for locale, version in sorted(by_locale.items())
+                )
+                raise PolicyCorpusError(f"{policy_id} is approved at {stated}")
 
     def _reject_numbers_absent_from_prose(self) -> None:
         """Every numeric claim has to appear, as that whole number, in the prose.
@@ -189,6 +221,15 @@ class PolicyCorpus:
         for (policy_id, version), by_locale in grouped.items():
             if len(by_locale) < 2:
                 continue
+            kinds = {
+                entry.kind
+                for entry in self._entries
+                if (entry.id, entry.version) == (policy_id, version)
+            }
+            if len(kinds) > 1:
+                raise PolicyCorpusError(
+                    f"{policy_id} v{version} is a {' and a '.join(sorted(kinds))}"
+                )
             fields = {
                 name
                 for name in next(iter(by_locale.values()))
@@ -201,14 +242,19 @@ class PolicyCorpus:
                 )
 
     def __iter__(self) -> Iterator[ReturnPolicyEntry | ShippingPolicyEntry]:
-        return iter(self._entries)
+        """Approved entries only.
+
+        Iterating is what callers reach for, so it is the safe operation.
+        Reaching a draft takes a method whose name says what it is doing.
+        """
+        return iter(entry for entry in self._entries if entry.approved)
 
     def __len__(self) -> int:
-        return len(self._entries)
+        return sum(1 for entry in self._entries if entry.approved)
 
-    def approved(self) -> tuple[ReturnPolicyEntry | ShippingPolicyEntry, ...]:
-        """Entries a response may cite. Drafts are readable but never citable."""
-        return tuple(entry for entry in self._entries if entry.approved)
+    def including_drafts(self) -> tuple[ReturnPolicyEntry | ShippingPolicyEntry, ...]:
+        """Every entry, approved or not. Nothing citable comes from here."""
+        return self._entries
 
 
 def load_corpus(directory: Path = DEFAULT_POLICY_DIR) -> PolicyCorpus:
