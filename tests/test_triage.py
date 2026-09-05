@@ -4,9 +4,15 @@ import pytest
 
 from app.agent.intent import Intent
 from app.agent.knowledge import Locale
-from app.agent.profiles import Input, Source
-from app.agent.reasons import ReasonCode
-from app.agent.triage import Clarify, Escalate, Proceed, triage
+from app.agent.profiles import Input, Source, profile_for
+from app.agent.reasons import ClarificationReason, EscalationReason
+from app.agent.triage import (
+    Clarify,
+    Escalate,
+    Proceed,
+    UnexplainedEscalationError,
+    triage,
+)
 
 LINKED = frozenset({Input.COMMERCE_ACCOUNT})
 LINKED_WITH_ORDER = frozenset({Input.COMMERCE_ACCOUNT, Input.ORDER_ID})
@@ -39,14 +45,16 @@ class Insists:
 async def test_a_report_of_trouble_reaches_a_person_before_anything_else_runs() -> None:
     """The classifier raises if consulted. It is not consulted."""
     outcome = await triage("I was charged twice", classifier=MustNotBeAsked())
-    assert outcome == Escalate(reasons=frozenset({ReasonCode.PAYMENT_DISPUTE}))
+    assert outcome == Escalate(reasons=frozenset({EscalationReason.PAYMENT_DISPUTE}))
 
 
 @pytest.mark.asyncio
 async def test_every_kind_of_trouble_in_the_message_is_carried_forward() -> None:
     outcome = await triage("Someone hacked my account and used my card fraudulently")
     assert outcome == Escalate(
-        reasons=frozenset({ReasonCode.ACCOUNT_COMPROMISE, ReasonCode.SUSPECTED_FRAUD})
+        reasons=frozenset(
+            {EscalationReason.ACCOUNT_COMPROMISE, EscalationReason.SUSPECTED_FRAUD}
+        )
     )
 
 
@@ -79,13 +87,13 @@ async def test_a_classifier_sees_what_the_rules_could_not_place() -> None:
 @pytest.mark.asyncio
 async def test_a_classifier_that_cannot_place_it_either_asks_the_customer() -> None:
     outcome = await triage("I need help with my purchase", classifier=Insists(None))
-    assert outcome == Clarify(reason=ReasonCode.UNRESOLVED_INTENT)
+    assert outcome == Clarify(reason=ClarificationReason.UNRESOLVED_INTENT)
 
 
 @pytest.mark.asyncio
 async def test_without_a_classifier_an_unplaced_message_asks_the_customer() -> None:
     assert await triage("I need help with my purchase") == Clarify(
-        reason=ReasonCode.UNRESOLVED_INTENT
+        reason=ClarificationReason.UNRESOLVED_INTENT
     )
 
 
@@ -95,27 +103,31 @@ async def test_two_requests_get_a_question_rather_than_half_an_answer() -> None:
         "Where is my order, and can I return it once it arrives?",
         known=LINKED_WITH_ORDER,
     )
-    assert outcome == Clarify(reason=ReasonCode.MULTIPLE_INTENTS)
+    assert outcome == Clarify(reason=ClarificationReason.MULTIPLE_INTENTS)
 
 
 @pytest.mark.asyncio
 async def test_a_missing_order_number_is_asked_for() -> None:
     outcome = await triage("Where is my order?", known=LINKED)
-    assert outcome == Clarify(reason=ReasonCode.MISSING_ORDER_ID)
+    assert outcome == Clarify(reason=ClarificationReason.MISSING_ORDER_ID)
 
 
 @pytest.mark.asyncio
 async def test_an_unlinked_customer_goes_to_a_person() -> None:
     """They cannot supply what is missing, so asking them wastes their time."""
     outcome = await triage("Where is my order?", known=frozenset({Input.ORDER_ID}))
-    assert outcome == Escalate(reasons=frozenset({ReasonCode.CUSTOMER_NOT_LINKED}))
+    assert outcome == Escalate(
+        reasons=frozenset({EscalationReason.CUSTOMER_NOT_LINKED})
+    )
 
 
 @pytest.mark.asyncio
 async def test_the_more_serious_absence_decides() -> None:
     """Both missing. Asking for an order number would not have helped."""
     outcome = await triage("Where is my order?", known=frozenset())
-    assert outcome == Escalate(reasons=frozenset({ReasonCode.CUSTOMER_NOT_LINKED}))
+    assert outcome == Escalate(
+        reasons=frozenset({EscalationReason.CUSTOMER_NOT_LINKED})
+    )
 
 
 @pytest.mark.asyncio
@@ -129,7 +141,7 @@ async def test_everything_present_proceeds() -> None:
 @pytest.mark.asyncio
 async def test_asking_after_an_unnamed_product_asks_which_one() -> None:
     outcome = await triage("Is it still available?")
-    assert outcome == Clarify(reason=ReasonCode.MISSING_PRODUCT_REFERENCE)
+    assert outcome == Clarify(reason=ClarificationReason.MISSING_PRODUCT_REFERENCE)
 
 
 @pytest.mark.asyncio
@@ -160,7 +172,7 @@ async def test_an_order_and_a_refund_are_still_two_questions() -> None:
     outcome = await triage(
         "Where is my order, and where is my refund?", known=LINKED_WITH_ORDER
     )
-    assert outcome == Clarify(reason=ReasonCode.MULTIPLE_INTENTS)
+    assert outcome == Clarify(reason=ClarificationReason.MULTIPLE_INTENTS)
 
 
 @pytest.mark.asyncio
@@ -168,3 +180,19 @@ async def test_saying_an_order_turned_up_is_context_for_the_return() -> None:
     outcome = await triage("My order arrived and I want to return it.")
     assert isinstance(outcome, Proceed)
     assert outcome.intent is Intent.RETURN_POLICY
+
+
+def test_an_escalation_has_to_say_why() -> None:
+    """A queue entry nobody can act on is worse than none."""
+    with pytest.raises(UnexplainedEscalationError):
+        Escalate(reasons=frozenset())
+
+
+def test_a_plan_cannot_be_given_a_profile_belonging_to_something_else() -> None:
+    """It held both and nothing compared them.
+
+    A return-policy request carrying the order-status profile is a request
+    authorised to read commerce, which nothing about it justified.
+    """
+    with pytest.raises(TypeError):
+        Proceed(Intent.RETURN_POLICY, profile_for(Intent.ORDER_STATUS))  # type: ignore[call-arg]

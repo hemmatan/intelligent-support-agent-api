@@ -11,7 +11,7 @@ from app.agent.profiles import (
     Source,
     profile_for,
 )
-from app.agent.reasons import ReasonCode
+from app.agent.reasons import ClarificationReason, EscalationReason
 from app.agent.reliability import Assessment, Factor, ReliabilityLevel, Route
 
 
@@ -59,9 +59,9 @@ def test_a_missing_order_number_and_a_missing_account_go_different_ways() -> Non
         Input.COMMERCE_ACCOUNT,
     }
     assert Input.ORDER_ID.when_missing is Route.CLARIFICATION
-    assert Input.ORDER_ID.reason is ReasonCode.MISSING_ORDER_ID
+    assert Input.ORDER_ID.reason is ClarificationReason.MISSING_ORDER_ID
     assert Input.COMMERCE_ACCOUNT.when_missing is Route.HUMAN_ESCALATION
-    assert Input.COMMERCE_ACCOUNT.reason is ReasonCode.CUSTOMER_NOT_LINKED
+    assert Input.COMMERCE_ACCOUNT.reason is EscalationReason.CUSTOMER_NOT_LINKED
 
 
 def test_an_input_decides_its_own_consequence() -> None:
@@ -73,7 +73,8 @@ def test_an_input_decides_its_own_consequence() -> None:
     """
     for missing in Input:
         assert missing.when_missing in {Route.CLARIFICATION, Route.HUMAN_ESCALATION}
-        assert missing.reason is not None
+        escalating = missing.when_missing is Route.HUMAN_ESCALATION
+        assert escalating is isinstance(missing.reason, EscalationReason)
 
 
 def test_asking_after_something_only_commerce_uses_needs_commerce() -> None:
@@ -184,3 +185,14 @@ def test_a_source_this_request_never_chose_carries_nothing() -> None:
     """Reading it at all means something was picked for ranking well."""
     policy = profile_for(Intent.RETURN_POLICY)
     assert policy.authority_of(Source.COMMERCE) is ReliabilityLevel.UNUSABLE
+
+
+def test_no_reason_answers_to_both_destinations() -> None:
+    """The split is only worth anything while it is a partition.
+
+    A code listed under both would let the type say where a request went while
+    the value said nothing.
+    """
+    escalations = {reason.value for reason in EscalationReason}
+    clarifications = {reason.value for reason in ClarificationReason}
+    assert not escalations & clarifications

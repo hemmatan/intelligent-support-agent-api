@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from app.agent.intent import Intent
-from app.agent.reasons import ReasonCode
+from app.agent.reasons import ClarificationReason, EscalationReason, ReasonCode
 from app.agent.reliability import Factor, ReliabilityLevel, Route
 
 
@@ -43,21 +43,26 @@ class Input(StrEnum):
     PRODUCT_REFERENCE = "product_reference"
 
     @property
+    def reason(self) -> ReasonCode:
+        """Why a request stops when this is absent."""
+        return _REASONS[self]
+
+    @property
     def when_missing(self) -> Route:
-        """Whether the customer can supply this, or somebody here must."""
-        if self is Input.COMMERCE_ACCOUNT:
+        """Whether the customer can supply this, or somebody here must.
+
+        Read off the reason rather than stored beside it. Two properties
+        answering independently is two properties that can answer differently.
+        """
+        if isinstance(self.reason, EscalationReason):
             return Route.HUMAN_ESCALATION
         return Route.CLARIFICATION
 
-    @property
-    def reason(self) -> ReasonCode:
-        return _REASONS[self]
 
-
-_REASONS = {
-    Input.ORDER_ID: ReasonCode.MISSING_ORDER_ID,
-    Input.COMMERCE_ACCOUNT: ReasonCode.CUSTOMER_NOT_LINKED,
-    Input.PRODUCT_REFERENCE: ReasonCode.MISSING_PRODUCT_REFERENCE,
+_REASONS: dict["Input", ReasonCode] = {
+    Input.ORDER_ID: ClarificationReason.MISSING_ORDER_ID,
+    Input.COMMERCE_ACCOUNT: EscalationReason.CUSTOMER_NOT_LINKED,
+    Input.PRODUCT_REFERENCE: ClarificationReason.MISSING_PRODUCT_REFERENCE,
 }
 
 

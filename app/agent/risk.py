@@ -21,7 +21,7 @@ that leaning is wrong.
 import re
 from dataclasses import dataclass
 
-from app.agent.reasons import ReasonCode
+from app.agent.reasons import EscalationReason
 from app.agent.text import fold
 
 _SENTENCE = re.compile(r"[.!?\n]+")
@@ -31,13 +31,13 @@ _SENTENCE = re.compile(r"[.!?\n]+")
 class _Category:
     """A kind of trouble, and the phrases that name it in either language."""
 
-    reason: ReasonCode
+    reason: EscalationReason
     topics: tuple[str, ...]
 
 
 _CATEGORIES = (
     _Category(
-        ReasonCode.PAYMENT_DISPUTE,
+        EscalationReason.PAYMENT_DISPUTE,
         (
             "charged twice",
             "charged me twice",
@@ -51,7 +51,7 @@ _CATEGORIES = (
         ),
     ),
     _Category(
-        ReasonCode.SUSPECTED_FRAUD,
+        EscalationReason.SUSPECTED_FRAUD,
         (
             "fraud",
             "fraudulent",
@@ -73,7 +73,7 @@ _CATEGORIES = (
         ),
     ),
     _Category(
-        ReasonCode.ACCOUNT_COMPROMISE,
+        EscalationReason.ACCOUNT_COMPROMISE,
         (
             "hacked",
             "compromised",
@@ -93,7 +93,7 @@ _CATEGORIES = (
         ),
     ),
     _Category(
-        ReasonCode.LEGAL_THREAT,
+        EscalationReason.LEGAL_THREAT,
         (
             "my lawyer",
             "my solicitor",
@@ -193,7 +193,7 @@ def _is_advisory(sentence: str) -> bool:
     return any(phrase in sentence for phrase in _ADVISORY)
 
 
-def risks_in(message: str) -> frozenset[ReasonCode]:
+def risks_in(message: str) -> frozenset[EscalationReason]:
     """Every kind of trouble this message reports.
 
     A set, not a single answer: one message can describe both a compromised

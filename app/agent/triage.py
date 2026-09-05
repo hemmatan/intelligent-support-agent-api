@@ -1,10 +1,12 @@
 """Deciding what a message is before going anywhere to answer it.
 
 Three things can come out of this, and only one of them leads to a source
-being queried. Making them separate types rather than one carrying a route and
-a reason means an escalation cannot be recorded as a direct answer, or a
-clarification given a reason belonging to a fraud report — combinations that
-were previously writeable and had to be checked for.
+being queried. They are separate types, and each holds only what it cannot be
+derived from: a destination is the type itself, a reason comes from the set
+belonging to that destination, and a plan carries the intent alone and looks
+its profile up. An escalation delivered directly, a question to the customer
+explained by a fraud report, a plan whose profile governs a different intent —
+none of them can be assembled.
 
 Order is the safety property. Risk rules read the message first, so a message
 reporting trouble is escalated before a classifier has seen it and before any
@@ -17,23 +19,35 @@ from dataclasses import dataclass
 from app.agent.intent import Intent, IntentClassifier, intents_in
 from app.agent.knowledge import Locale
 from app.agent.profiles import DecisionProfile, Input, Source, profile_for
-from app.agent.reasons import ReasonCode
+from app.agent.reasons import ClarificationReason, EscalationReason
 from app.agent.reliability import Route
 from app.agent.risk import risks_in
+
+
+class UnexplainedEscalationError(ValueError):
+    """An escalation carrying no reason.
+
+    Somebody picks this up and has to be told what they are looking at, so an
+    empty set is a fault here rather than a thin queue entry later.
+    """
 
 
 @dataclass(frozen=True)
 class Escalate:
     """A person takes this one. No answer is drafted."""
 
-    reasons: frozenset[ReasonCode]
+    reasons: frozenset[EscalationReason]
+
+    def __post_init__(self) -> None:
+        if not self.reasons:
+            raise UnexplainedEscalationError("an escalation must say why")
 
 
 @dataclass(frozen=True)
 class Clarify:
     """Something is missing that the customer can supply."""
 
-    reason: ReasonCode
+    reason: ClarificationReason
 
 
 @dataclass(frozen=True)
@@ -41,7 +55,16 @@ class Proceed:
     """Enough is known to go and look, and this is where looking is allowed."""
 
     intent: Intent
-    profile: DecisionProfile
+
+    @property
+    def profile(self) -> DecisionProfile:
+        """Looked up, not supplied.
+
+        Taking it as a field allowed a plan naming one intent while carrying
+        the profile of another, which is a request permitted to read sources
+        nothing about it justified.
+        """
+        return profile_for(self.intent)
 
     @property
     def sources(self) -> frozenset[Source]:
@@ -76,13 +99,13 @@ async def triage(
 
     matched = intents_in(message)
     if len(matched) > 1:
-        return Clarify(reason=ReasonCode.MULTIPLE_INTENTS)
+        return Clarify(reason=ClarificationReason.MULTIPLE_INTENTS)
 
     intent = next(iter(matched), None)
     if intent is None and classifier is not None:
         intent = await classifier.classify(message, locale)
     if intent is None:
-        return Clarify(reason=ReasonCode.UNRESOLVED_INTENT)
+        return Clarify(reason=ClarificationReason.UNRESOLVED_INTENT)
 
     profile = profile_for(intent)
     missing = profile.required_inputs - known
@@ -97,8 +120,9 @@ async def triage(
                 need.value,
             ),
         )
-        if worst.when_missing is Route.HUMAN_ESCALATION:
-            return Escalate(reasons=frozenset({worst.reason}))
-        return Clarify(reason=worst.reason)
+        reason = worst.reason
+        if isinstance(reason, EscalationReason):
+            return Escalate(reasons=frozenset({reason}))
+        return Clarify(reason=reason)
 
-    return Proceed(intent=intent, profile=profile)
+    return Proceed(intent=intent)
