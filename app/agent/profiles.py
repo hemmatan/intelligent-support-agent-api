@@ -169,9 +169,12 @@ PROFILES: dict[Intent, DecisionProfile] = {
         required_factors=_COMMERCE_FACTS,
         required_inputs=frozenset({Input.COMMERCE_ACCOUNT, Input.ORDER_ID}),
     ),
-    # "Is it still available?" names no product. History can say what "it"
-    # was; where it cannot, the customer is asked rather than the catalogue
-    # being searched for a thing nobody identified.
+    # "Is it still available?" names no product. Where an earlier turn named
+    # one, context assembly has already resolved it and passes it in; where
+    # nothing did, the customer is asked rather than the catalogue being
+    # searched for a thing nobody identified. History is listed here for the
+    # other job it does — colouring an answer once the request proceeds — and
+    # not for that lookup, which happens before any of this is consulted.
     Intent.PRODUCT_AVAILABILITY: DecisionProfile(
         required_sources=frozenset({Source.COMMERCE}),
         contextual_sources=frozenset({Source.HISTORY}),

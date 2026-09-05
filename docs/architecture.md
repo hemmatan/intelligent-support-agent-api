@@ -27,7 +27,7 @@ answer", and all need different handling.
 
 ```mermaid
 flowchart TD
-    A[Authenticated customer message] --> B[Load identity, commerce linkage, locale]
+    A[Authenticated customer message] --> B[Assemble context<br/>identity, commerce linkage, locale,<br/>referents carried over from prior turns]
     B --> C{Mandatory risk rules}
     C -->|fraud, dispute, compromise, legal threat| ESC[Human escalation]
     C -->|clear| D[Classify intent<br/>rules first, model only if ambiguous]
@@ -147,6 +147,28 @@ is never authoritative for a claim made inside one. History can establish
 that the customer previously referred to order 4471; it can never establish
 that 4471 was delivered. A customer asserting "you already refunded me" in an
 earlier message is not evidence of a refund.
+
+### History is read twice, for two different things
+
+Resolving what a message refers to is not answering it. "Is it still
+available?" names no product, and the previous turn may name one. Reading
+that is context assembly, and it happens **before** triage, which is why the
+flow above loads referents in its first step and why triage receives what is
+already known rather than going to find out.
+
+The alternative was letting triage query history when a required input is
+missing. That was rejected: triage exists to decide which sources a request
+may touch, and a triage that reads a source to reach its decision has already
+spent the guarantee it was there to provide. Nothing is fetched on a message's
+behalf until the request has been placed.
+
+So history appears in two roles with different authority, and the difference
+is what it is being asked for. Before triage it supplies an identifier the
+customer already gave us — a fact about the conversation, which history owns.
+After a request proceeds it is a contextual source, able to colour an answer
+and never to be the reason for one. In neither role does it establish a
+business fact: a resolved product reference still sends the request to
+commerce to find out whether that product is in stock.
 
 ### Commerce data
 
