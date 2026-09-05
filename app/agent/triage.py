@@ -89,9 +89,11 @@ async def triage(
     have been asked for nothing.
 
     A classifier is offered only messages the rules made no sense of. It can
-    name an intent they missed; it is never consulted about one they placed,
-    and never about a message they escalated. It cannot report risk at all, so
-    there is no way for it to disagree about that either.
+    name an intent they missed and report trouble they did not describe, and
+    it is never consulted about a message they placed or escalated. It cannot
+    disagree with them about risk in the one direction that would matter: a
+    message they flagged has already left by the time it would be asked, and
+    what it returns is only ever added.
     """
     risks = risks_in(message)
     if risks:
@@ -103,7 +105,11 @@ async def triage(
 
     intent = next(iter(matched), None)
     if intent is None and classifier is not None:
-        intent = await classifier.classify(message, locale)
+        reading = await classifier.classify(message, locale)
+        # Trouble it saw and the rules did not outranks anything it named.
+        if reading.risks:
+            return Escalate(reasons=reading.risks)
+        intent = reading.intent
     if intent is None:
         return Clarify(reason=ClarificationReason.UNRESOLVED_INTENT)
 

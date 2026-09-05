@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.agent.intent import Intent
+from app.agent.intent import Classification, Intent
 from app.agent.knowledge import Locale
 from app.agent.profiles import Input, Source, profile_for
 from app.agent.reasons import ClarificationReason, EscalationReason
@@ -25,20 +25,25 @@ class MustNotBeAsked:
     never wired up. Raising cannot.
     """
 
-    async def classify(self, message: str, locale: Locale) -> Intent | None:
+    async def classify(self, message: str, locale: Locale) -> Classification:
         raise AssertionError("a classifier saw a message the rules had settled")
 
 
 class Insists:
     """A classifier that answers whatever it is asked."""
 
-    def __init__(self, answer: Intent | None):
+    def __init__(
+        self,
+        answer: Intent | None,
+        risks: frozenset[EscalationReason] = frozenset(),
+    ):
         self.answer = answer
+        self.risks = risks
         self.seen: list[str] = []
 
-    async def classify(self, message: str, locale: Locale) -> Intent | None:
+    async def classify(self, message: str, locale: Locale) -> Classification:
         self.seen.append(message)
-        return self.answer
+        return Classification(intent=self.answer, risks=self.risks)
 
 
 @pytest.mark.asyncio
@@ -196,3 +201,34 @@ def test_a_plan_cannot_be_given_a_profile_belonging_to_something_else() -> None:
     """
     with pytest.raises(TypeError):
         Proceed(Intent.RETURN_POLICY, profile_for(Intent.ORDER_STATUS))  # type: ignore[call-arg]
+
+
+@pytest.mark.asyncio
+async def test_a_model_may_name_trouble_the_phrases_did_not() -> None:
+    """A fixed vocabulary misses however people actually describe things."""
+    unusual = Insists(None, frozenset({EscalationReason.SUSPECTED_FRAUD}))
+    outcome = await triage("Something odd happened with my account", classifier=unusual)
+    assert outcome == Escalate(reasons=frozenset({EscalationReason.SUSPECTED_FRAUD}))
+
+
+@pytest.mark.asyncio
+async def test_trouble_it_reports_outranks_the_intent_it_reports_beside_it() -> None:
+    """Answering the question would be answering somebody being defrauded."""
+    both = Insists(
+        Intent.RETURN_POLICY, frozenset({EscalationReason.ACCOUNT_COMPROMISE})
+    )
+    outcome = await triage("I need help with my purchase", classifier=both)
+    assert isinstance(outcome, Escalate)
+
+
+@pytest.mark.asyncio
+async def test_a_model_has_no_way_to_say_a_message_is_fine() -> None:
+    """The only asymmetry that makes a model safe here.
+
+    A classifier returning nothing at all cannot rescue a message the rules
+    escalated, because the rules returned before it would have been reached.
+    """
+    quiet = Insists(None)
+    outcome = await triage("I was charged twice", classifier=quiet)
+    assert outcome == Escalate(reasons=frozenset({EscalationReason.PAYMENT_DISPUTE}))
+    assert quiet.seen == []

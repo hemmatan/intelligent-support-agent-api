@@ -15,10 +15,12 @@ where one is not. Neither is a guess.
 """
 
 from collections.abc import Sequence
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Protocol, runtime_checkable
 
 from app.agent.knowledge import Locale
+from app.agent.reasons import EscalationReason
 from app.agent.text import fold
 
 
@@ -135,17 +137,34 @@ _RULES: dict[Intent, Sequence[str]] = {
 }
 
 
+@dataclass(frozen=True)
+class Classification:
+    """What a model made of a message the rules could not place.
+
+    Both fields are answers. No intent means the message is still unclear and
+    the customer is asked; risks are trouble the phrase rules did not phrase,
+    which is the failure mode a fixed vocabulary has.
+    """
+
+    intent: Intent | None = None
+    risks: frozenset[EscalationReason] = field(default_factory=frozenset)
+
+
 @runtime_checkable
 class IntentClassifier(Protocol):
     """A model consulted only where the rules recognised nothing.
 
-    It may name an intent the rules missed. It is never asked about a message
-    the rules already understood, and nothing it returns can clear a risk
-    those rules found.
+    It may name an intent the rules missed, and it may report trouble they did
+    not describe. It has no way to say that something is fine: there is no
+    value it can return that lowers a risk, so the only direction it moves a
+    request is towards a person. That asymmetry is why a model is allowed to
+    speak here at all.
+
+    It is never asked about a message the rules already placed or escalated.
     """
 
-    async def classify(self, message: str, locale: Locale) -> Intent | None:
-        """Return an intent, or None where the message is still unclear."""
+    async def classify(self, message: str, locale: Locale) -> Classification:
+        """Read a message the phrase rules made nothing of."""
         ...
 
 
