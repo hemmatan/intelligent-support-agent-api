@@ -8,7 +8,9 @@ attempt to detect falsehood in text.
 
 import hashlib
 import json
+import re
 import tomllib
+from collections import defaultdict
 from collections.abc import Iterator, Sequence
 from enum import StrEnum
 from pathlib import Path
@@ -128,6 +130,8 @@ class PolicyCorpus:
         self._entries = tuple(entries)
         self._reject_repeated_identities()
         self._reject_competing_approved_versions()
+        self._reject_numbers_absent_from_prose()
+        self._reject_claims_that_differ_by_locale()
 
     def _reject_repeated_identities(self) -> None:
         seen: set[tuple[str, str, int]] = set()
@@ -149,6 +153,52 @@ class PolicyCorpus:
                     f"v{approved[key]} and v{entry.version}"
                 )
             approved[key] = entry.version
+
+    def _reject_numbers_absent_from_prose(self) -> None:
+        """Every numeric claim has to appear, as that whole number, in the prose.
+
+        This catches a value edited on one side and not the other, which is
+        the failure that would render a withdrawn figure confidently. It is
+        not a check that the two say the same thing: prose reading "all items"
+        against eligibility "standard_items" passes here and is caught only by
+        whoever approves the entry.
+
+        Numbers must be written as digits. "Thirty days" fails, which is a
+        constraint on how policy is written rather than a defect.
+        """
+        for entry in self._entries:
+            for name, value in entry.claims.model_dump().items():
+                if isinstance(value, bool) or not isinstance(value, int):
+                    continue
+                if not re.search(rf"(?<!\d){value}(?!\d)", entry.prose):
+                    raise PolicyCorpusError(
+                        f"{entry.reference} claims {name} = {value}, "
+                        f"which does not appear in its prose"
+                    )
+
+    def _reject_claims_that_differ_by_locale(self) -> None:
+        """One policy at one version means one rule, whatever language it is in.
+
+        Translations differ; the business rule does not. A jurisdiction with a
+        genuinely different rule is a different policy id, not a translation of
+        this one.
+        """
+        grouped: dict[tuple[str, int], dict[str, dict[str, object]]] = defaultdict(dict)
+        for entry in self._entries:
+            grouped[(entry.id, entry.version)][entry.locale] = entry.claims.model_dump()
+        for (policy_id, version), by_locale in grouped.items():
+            if len(by_locale) < 2:
+                continue
+            fields = {
+                name
+                for name in next(iter(by_locale.values()))
+                if len({str(claims[name]) for claims in by_locale.values()}) > 1
+            }
+            if fields:
+                raise PolicyCorpusError(
+                    f"{policy_id} v{version} states {sorted(fields)} differently "
+                    f"in {sorted(by_locale)}"
+                )
 
     def __iter__(self) -> Iterator[ReturnPolicyEntry | ShippingPolicyEntry]:
         return iter(self._entries)
