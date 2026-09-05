@@ -6,23 +6,30 @@ import pytest
 
 from app.agent.embedding import EmbeddingUnavailableError, Vector
 from app.agent.knowledge import PolicyCorpus, ReturnPolicyEntry, load_corpus
-from app.agent.retrieval import PolicyIndex, tokenise
+from app.agent.reliability import ReliabilityLevel
+from app.agent.retrieval import Hit, PolicyIndex, relevance_of, tokenise
 
 
 class ConceptEmbedder:
-    """A stand-in that recognises meaning we decide in advance.
+    """A stand-in shaped like a real embedder, not like a convenient one.
 
-    Not a model. It exists so a test can say "given an embedder that considers
-    these two texts related, does fusion find the entry BM25 missed" without
-    also asserting that some real model agrees they are related. That is a
-    separate claim about a separate thing, and it belongs in a test that
-    actually calls one.
+    Vectors are dense and every pair scores well above zero, because that is
+    what a sentence model does — its embeddings sit in a cone and unrelated
+    texts land around 0.5 to 0.9, never at 0. A one-hot fake would make an
+    unrelated query score exactly zero and quietly hide the fact that cosine
+    similarity has no threshold below which a document stops being returned.
+
+    It recognises meaning decided in advance. It exists to ask whether fusion
+    surfaces what BM25 missed, not whether a real model finds two texts alike.
+    That is a separate claim and needs a real model.
     """
 
     CONCEPTS = {
         "returns": ("return", "retourner", "refund", "rembours", "change my mind"),
         "shipping": ("delivery", "livraison", "order", "dispatch", "shipped"),
     }
+    # Every text starts here, so nothing is ever orthogonal to anything.
+    BASELINE = 0.45
 
     def __init__(self, *, unavailable: bool = False):
         self.unavailable = unavailable
@@ -36,7 +43,7 @@ class ConceptEmbedder:
 
     def _vector(self, text: str) -> Vector:
         return tuple(
-            float(any(word in text for word in words))
+            self.BASELINE + float(any(word in text for word in words))
             for words in self.CONCEPTS.values()
         )
 
@@ -46,10 +53,12 @@ def index() -> PolicyIndex:
     return PolicyIndex(load_corpus())
 
 
-def entry(*, approved: bool, version: int) -> ReturnPolicyEntry:
+def entry(
+    *, approved: bool, version: int, policy_id: str = "returns.standard"
+) -> ReturnPolicyEntry:
     return ReturnPolicyEntry.model_validate(
         {
-            "id": "returns.standard",
+            "id": policy_id,
             "locale": "en",
             "version": version,
             "approved": approved,
@@ -161,13 +170,43 @@ async def test_lexical_search_alone_misses_a_paraphrase(index: PolicyIndex) -> N
 
 
 @pytest.mark.asyncio
-async def test_fusion_finds_what_words_alone_could_not() -> None:
+async def test_fusion_surfaces_what_words_alone_could_not() -> None:
+    """Meaning finds the right entry. It does not get to send it unreviewed.
+
+    Words alone return nothing here, so without an embedder this question
+    reaches a human as a ticket. With one it reaches a staff member with the
+    right policy already drafted, which is the improvement being claimed —
+    not a direct answer.
+    """
     hybrid = PolicyIndex(load_corpus(), ConceptEmbedder())
     await hybrid.warm()
     hits = await hybrid.search(PARAPHRASE, "en")
-    assert [hit.entry.id for hit in hits] == ["returns.standard"]
+    assert hits[0].entry.id == "returns.standard"
     assert hits[0].lexical_rank is None
-    assert hits[0].semantic_rank == 1
+    assert relevance_of(hits) is ReliabilityLevel.REVIEW_ONLY
+
+
+@pytest.mark.asyncio
+async def test_meaning_cannot_tell_a_paraphrase_from_an_unanswerable_question() -> None:
+    """The limit of retrieval, and the reason coverage exists.
+
+    Nothing in the corpus mentions price matching. A real embedder returns the
+    nearest entries anyway, because cosine similarity has no floor, so this
+    produces the same shape as a question the corpus really can answer.
+    Separating them needs a check on whether the entry carries the claim being
+    asked for, which retrieval is not the place for.
+    """
+    hybrid = PolicyIndex(load_corpus(), ConceptEmbedder())
+    await hybrid.warm()
+
+    unanswerable = await hybrid.search("do you offer price matching", "en")
+    paraphrase = await hybrid.search(PARAPHRASE, "en")
+
+    assert unanswerable, "a real embedder returns something for anything"
+    assert [(h.lexical_rank, h.semantic_rank) for h in unanswerable] == [
+        (h.lexical_rank, h.semantic_rank) for h in paraphrase
+    ]
+    assert relevance_of(unanswerable) is relevance_of(paraphrase)
 
 
 @pytest.mark.asyncio
@@ -183,8 +222,8 @@ async def test_an_entry_both_rankers_find_outranks_one_only_one_finds() -> None:
     hits = await hybrid.search("how many days do I have to return something", "en")
     assert [hit.entry.id for hit in hits] == ["returns.standard", "shipping.times"]
     assert (hits[0].lexical_rank, hits[0].semantic_rank) == (1, 1)
-    assert (hits[1].lexical_rank, hits[1].semantic_rank) == (2, None)
     assert hits[0].score > hits[1].score
+    assert relevance_of(hits) is ReliabilityLevel.READY
 
 
 @pytest.mark.asyncio
@@ -206,3 +245,80 @@ async def test_the_corpus_is_embedded_once_not_once_per_search() -> None:
     for _ in range(3):
         await hybrid.search("return", "en")
     assert embedder.calls == 1 + 3  # the corpus once, then one query each
+
+
+def hit(policy_id: str, score: float, lexical: int | None, semantic: int | None) -> Hit:
+    return Hit(
+        entry=entry(approved=True, version=1, policy_id=policy_id),
+        score=score,
+        lexical_rank=lexical,
+        semantic_rank=semantic,
+    )
+
+
+def test_nothing_retrieved_is_unusable() -> None:
+    assert relevance_of([]) is ReliabilityLevel.UNUSABLE
+
+
+def test_agreement_between_rankers_is_the_strongest_signal() -> None:
+    hits = [
+        hit("returns.standard", 0.0328, 1, 1),
+        hit("shipping.times", 0.0161, 2, None),
+    ]
+    assert relevance_of(hits) is ReliabilityLevel.READY
+
+
+def test_appearing_in_both_rankings_is_not_agreement() -> None:
+    """The fused winner need not be either ranker's choice.
+
+    Second place with one and first with the other outscores first place with
+    one and third with the other, so an entry neither ranker preferred can
+    lead while the two disagree about the subject of the question.
+    """
+    hits = [
+        hit("shipping.times", 1 / 62 + 1 / 61, 2, 1),
+        hit("returns.standard", 1 / 61 + 1 / 63, 1, 3),
+    ]
+    assert hits[0].score > hits[1].score
+    assert relevance_of(hits) is ReliabilityLevel.REVIEW_ONLY
+
+
+def test_one_ranker_alone_is_usable_but_not_the_strongest() -> None:
+    """A lexical-only deployment answers; it never claims two opinions."""
+    hits = [
+        hit("returns.standard", 0.0164, 1, None),
+        hit("shipping.times", 0.0161, 2, None),
+    ]
+    assert relevance_of(hits) is ReliabilityLevel.ACCEPTABLE
+
+
+def test_rankers_disagreeing_about_the_subject_goes_to_review() -> None:
+    """Two methods disagreeing about the subject, not two close answers."""
+    hits = [
+        hit("shipping.times", 0.0164, 1, None),
+        hit("returns.standard", 0.0164, None, 1),
+    ]
+    assert relevance_of(hits) is ReliabilityLevel.REVIEW_ONLY
+
+
+def test_a_single_hit_found_by_one_ranker_is_acceptable() -> None:
+    assert (
+        relevance_of([hit("returns.standard", 0.0164, 1, None)])
+        is ReliabilityLevel.ACCEPTABLE
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_levels_a_real_search_produces(index: PolicyIndex) -> None:
+    hybrid = PolicyIndex(load_corpus(), ConceptEmbedder())
+    await hybrid.warm()
+
+    agreed = await hybrid.search("how many days do I have to return something", "en")
+    assert relevance_of(agreed) is ReliabilityLevel.READY
+
+    lexical_only = await index.search("how long do I have to return a jacket", "en")
+    assert relevance_of(lexical_only) is ReliabilityLevel.ACCEPTABLE
+
+    assert relevance_of(await index.search("warranty on electrical goods", "en")) is (
+        ReliabilityLevel.UNUSABLE
+    )

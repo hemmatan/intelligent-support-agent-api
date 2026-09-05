@@ -27,6 +27,7 @@ from app.agent.knowledge import (
     ReturnPolicyEntry,
     ShippingPolicyEntry,
 )
+from app.agent.reliability import ReliabilityLevel
 
 PolicyEntry = ReturnPolicyEntry | ShippingPolicyEntry
 
@@ -360,3 +361,38 @@ class PolicyIndex:
         if not lexical and not semantic:
             return []
         return _fuse([lexical, semantic])[:limit]
+
+
+def relevance_of(hits: list[Hit]) -> ReliabilityLevel:
+    """How far retrieval can be trusted about which entry answers the question.
+
+    Read from which entry each ranker chose, not from the size of the winning
+    number. A cutoff would need a figure nobody measured; whether two
+    independent methods picked the same document needs no unit at all.
+
+    Agreeing means leading with the same entry. Merely appearing in both
+    rankings is weaker than it looks, because fusion can turn it into a win:
+    an entry placed second by one ranker and first by the other outscores one
+    placed first and third, so a document neither ranker preferred outright
+    can lead while the two disagree about what the question is about.
+
+    Meaning alone never reaches a customer unreviewed. Cosine similarity has
+    no zero: unrelated texts sit well above it, so a high one says a document
+    is the closest of those available, not that it answers anything. Words
+    corroborating it is evidence; the number on its own is not. Whether the
+    entry actually carries the claim an answer needs is a question for
+    coverage, which can answer it definitely rather than by degree.
+    """
+    if not hits:
+        return ReliabilityLevel.UNUSABLE
+
+    lexical_first = next((hit for hit in hits if hit.lexical_rank == 1), None)
+    semantic_first = next((hit for hit in hits if hit.semantic_rank == 1), None)
+
+    if lexical_first is None:
+        return ReliabilityLevel.REVIEW_ONLY
+    if semantic_first is None:
+        return ReliabilityLevel.ACCEPTABLE
+    if lexical_first.entry.reference == semantic_first.entry.reference:
+        return ReliabilityLevel.READY
+    return ReliabilityLevel.REVIEW_ONLY

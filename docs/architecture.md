@@ -304,7 +304,20 @@ prose.
 ### What the model does
 
 A Hugging Face embedding model provides multilingual semantic retrieval over
-the knowledge base, alongside lexical BM25 search. A classifier resolves
+the knowledge base, alongside lexical BM25 search.
+
+The two are not interchangeable, and the reliability level treats them
+asymmetrically. BM25 returning nothing is a fact: the question and the
+document share no words. A low cosine similarity is not the equivalent fact,
+because there is no similarity below which a document stops being returned —
+embeddings of unrelated text sit well above zero, so meaning always has a
+nearest entry to offer. A question the corpus cannot answer at all therefore
+looks exactly like a question it can answer in different words.
+
+Words corroborating meaning is evidence, and reaches a customer. Meaning
+alone is a ranking, and reaches internal review. Whether the entry actually
+carries the claim being asked for is settled by coverage, which has a
+definite answer where a similarity has only a degree. A classifier resolves
 ambiguous non-sensitive intent when deterministic rules cannot. A generative
 model writes staff-only drafts and history summaries.
 
