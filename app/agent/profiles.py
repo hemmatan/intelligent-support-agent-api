@@ -149,6 +149,15 @@ _COMMERCE_FACTS = frozenset({Factor.AUTHORITY, Factor.FRESHNESS, Factor.COVERAGE
 PROFILES: dict[Intent, DecisionProfile] = {
     Intent.RETURN_POLICY: _POLICY,
     Intent.SHIPPING_POLICY: _POLICY,
+    # Where one refund stands, which is a fact about a payment and not a rule
+    # about returns. The returns policy can say somebody had thirty days; only
+    # commerce can say whether their money went back.
+    Intent.REFUND_STATUS: DecisionProfile(
+        required_sources=frozenset({Source.COMMERCE}),
+        contextual_sources=frozenset({Source.HISTORY}),
+        required_factors=_COMMERCE_FACTS,
+        required_inputs=frozenset({Input.COMMERCE_ACCOUNT, Input.ORDER_ID}),
+    ),
     Intent.ORDER_STATUS: DecisionProfile(
         required_sources=frozenset({Source.COMMERCE}),
         contextual_sources=frozenset({Source.HISTORY}),

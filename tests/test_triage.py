@@ -133,8 +133,38 @@ async def test_asking_after_an_unnamed_product_asks_which_one() -> None:
 
 
 @pytest.mark.asyncio
-async def test_chasing_a_refund_is_not_answered_from_the_policy() -> None:
-    """No intent covers it, so it asks rather than quoting a return window."""
-    assert await triage("Where is my refund?") == Clarify(
-        reason=ReasonCode.UNRESOLVED_INTENT
+async def test_chasing_a_refund_is_a_question_about_money_not_about_policy() -> None:
+    outcome = await triage("Where is my refund?", known=LINKED_WITH_ORDER)
+    assert isinstance(outcome, Proceed)
+    assert outcome.intent is Intent.REFUND_STATUS
+    assert outcome.profile.required_sources == {Source.COMMERCE}
+    assert Source.KNOWLEDGE_BASE not in outcome.sources
+
+
+@pytest.mark.asyncio
+async def test_no_classifier_is_offered_a_refund_to_reconsider() -> None:
+    """The hole this closes: the rules withhold the returns policy from
+    somebody chasing money, and a classifier asked about the leftover handed
+    it straight back. Nothing is left over now, so nothing is asked.
+    """
+    outcome = await triage(
+        "Where is my refund?", known=LINKED_WITH_ORDER, classifier=MustNotBeAsked()
     )
+    assert isinstance(outcome, Proceed)
+    assert outcome.intent is Intent.REFUND_STATUS
+
+
+@pytest.mark.asyncio
+async def test_an_order_and_a_refund_are_still_two_questions() -> None:
+    """Discarding the refund match answered the order half and said nothing."""
+    outcome = await triage(
+        "Where is my order, and where is my refund?", known=LINKED_WITH_ORDER
+    )
+    assert outcome == Clarify(reason=ReasonCode.MULTIPLE_INTENTS)
+
+
+@pytest.mark.asyncio
+async def test_saying_an_order_turned_up_is_context_for_the_return() -> None:
+    outcome = await triage("My order arrived and I want to return it.")
+    assert isinstance(outcome, Proceed)
+    assert outcome.intent is Intent.RETURN_POLICY

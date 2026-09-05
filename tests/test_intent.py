@@ -96,8 +96,20 @@ def test_chasing_a_refund_is_not_asking_what_the_policy_says(message: str) -> No
     """The policy can say how long somebody has. It cannot say where the money is.
 
     These resolved to the returns policy, which would have replied with a
-    thirty-day window to somebody asking after money they are owed. There is
-    no refund-status intent to route them to, so they resolve to nothing and
-    get asked about — not an answer, but not the wrong answer either.
+    thirty-day window to somebody asking after money they are owed. They now
+    resolve to the intent that owns where money is, which sends them to
+    commerce rather than to a policy document.
     """
-    assert Intent.RETURN_POLICY not in intents_in(message)
+    assert intents_in(message) == {Intent.REFUND_STATUS}
+
+
+def test_a_delivered_order_mentioned_in_passing_is_not_a_second_request() -> None:
+    """Narrating what happened is not asking where it is.
+
+    "my order arrived" was listed as a status phrase, so saying it had
+    arrived asked us to go and find out whether it had arrived.
+    """
+    assert intents_in("My order arrived and I want to return it.") == {
+        Intent.RETURN_POLICY
+    }
+    assert intents_in("Has my order arrived?") == {Intent.ORDER_STATUS}

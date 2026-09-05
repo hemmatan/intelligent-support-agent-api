@@ -29,6 +29,7 @@ class Intent(StrEnum):
     SHIPPING_POLICY = "shipping_policy"
     ORDER_STATUS = "order_status"
     PRODUCT_AVAILABILITY = "product_availability"
+    REFUND_STATUS = "refund_status"
 
 
 # Phrases naming a general policy, as against a particular purchase. The
@@ -37,6 +38,11 @@ class Intent(StrEnum):
 # Chasing one particular refund, rather than asking what the rule is. A
 # returns policy can say how long somebody has; it cannot say where their
 # money went, and answering from it replies to a question nobody asked.
+#
+# These read as the returns policy because they share its whole vocabulary,
+# so the match is replaced rather than removed. Deleting it made "where is my
+# order, and where is my refund" a single request about an order, and left
+# nothing for a classifier to be kept away from.
 #
 # Written as whole phrases after a general one failed. "Any chasing wording
 # anywhere in the message" also swallowed the returns half of "where is my
@@ -102,7 +108,8 @@ _RULES: dict[Intent, Sequence[str]] = {
         "when will my order",
         "has my order shipped",
         "has my order been",
-        "my order arrived",
+        "has my order arrived",
+        "my order arrived yet",
         "ou est ma commande",
         "suivre ma commande",
         "statut de ma commande",
@@ -151,10 +158,14 @@ def intents_in(message: str) -> frozenset[Intent]:
     the question without saying so.
 
     Somebody chasing a refund is not asking what the returns policy says, so
-    the policy is withheld from them. Nothing here can route that request
-    instead — there is no refund-status intent yet — so it resolves to nothing
-    and gets asked about, which is at least not an answer to a different
-    question.
+    the policy match is replaced by the intent that owns where money is. It
+    resolves to a commerce claim, which is where a refund actually stands.
+
+    Replacing rather than discarding matters twice. A message asking two
+    things stays two things, instead of quietly becoming the one that survived
+    deletion. And the request is now placed, so no classifier is consulted
+    about it — which is what stopped one from handing back the returns policy
+    the rules had just withheld.
     """
     folded = fold(message)
     matched = {
@@ -164,4 +175,5 @@ def intents_in(message: str) -> frozenset[Intent]:
     }
     if any(phrase in folded for phrase in _CHASING_A_REFUND):
         matched.discard(Intent.RETURN_POLICY)
+        matched.add(Intent.REFUND_STATUS)
     return frozenset(matched)
