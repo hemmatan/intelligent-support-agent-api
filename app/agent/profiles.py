@@ -17,7 +17,7 @@ from enum import StrEnum
 
 from app.agent.intent import Intent
 from app.agent.reasons import ReasonCode
-from app.agent.reliability import Factor, Route
+from app.agent.reliability import Factor, ReliabilityLevel, Route
 
 
 class Source(StrEnum):
@@ -111,6 +111,23 @@ class DecisionProfile:
                 f"{sorted(self.required_inputs)} is asked for so that commerce can "
                 f"be queried, and this profile does not query it"
             )
+
+    def authority_of(self, source: Source) -> ReliabilityLevel:
+        """How far a record from `source` may carry a claim of this kind.
+
+        A required source owns claims like this one and can carry an answer by
+        itself. A contextual source can inform one and never assert it: the
+        support database can establish that a customer referred to order 4471,
+        never that 4471 arrived, so an answer resting on that alone goes to
+        somebody here rather than out. Anywhere else was not chosen for this
+        request, and a record from it is being read because it ranked well —
+        which is the thing profiles exist to stop.
+        """
+        if source in self.required_sources:
+            return ReliabilityLevel.READY
+        if source in self.contextual_sources:
+            return ReliabilityLevel.REVIEW_ONLY
+        return ReliabilityLevel.UNUSABLE
 
 
 # Answering from written policy. Relevance says the right entry was found;

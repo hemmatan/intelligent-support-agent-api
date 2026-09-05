@@ -12,7 +12,7 @@ from app.agent.profiles import (
     profile_for,
 )
 from app.agent.reasons import ReasonCode
-from app.agent.reliability import Factor, Route
+from app.agent.reliability import Assessment, Factor, ReliabilityLevel, Route
 
 
 def test_every_intent_has_a_profile() -> None:
@@ -140,3 +140,47 @@ def test_naming_a_ranking_score_where_nothing_is_ranked_is_refused() -> None:
             required_factors=frozenset({Factor.AUTHORITY}),
             contextual_factors=frozenset({Factor.RELEVANCE}),
         )
+
+
+def test_the_source_that_owns_a_claim_can_carry_it_alone() -> None:
+    policy = profile_for(Intent.RETURN_POLICY)
+    assert policy.authority_of(Source.KNOWLEDGE_BASE) is ReliabilityLevel.READY
+
+
+def test_a_well_matched_policy_cannot_say_where_an_order_is() -> None:
+    """It shares every word with the question and none of the answer.
+
+    A shipping policy saying orders arrive in two to three days ranks highly
+    against "where is my order" and knows nothing about that order. Ranking
+    cannot see the difference; authority is asked instead.
+    """
+    orders = profile_for(Intent.ORDER_STATUS)
+    assert orders.authority_of(Source.KNOWLEDGE_BASE) is ReliabilityLevel.UNUSABLE
+    assert (
+        Assessment(
+            required={Factor.AUTHORITY: orders.authority_of(Source.KNOWLEDGE_BASE)}
+        ).route
+        is Route.HUMAN_ESCALATION
+    )
+
+
+def test_history_can_inform_an_answer_and_never_carry_one() -> None:
+    """It establishes what a customer said, never that what they said is so."""
+    for intent in Intent:
+        assert profile_for(intent).authority_of(Source.HISTORY) is not (
+            ReliabilityLevel.READY
+        )
+
+
+def test_an_answer_resting_only_on_history_is_read_before_it_is_sent() -> None:
+    availability = profile_for(Intent.PRODUCT_AVAILABILITY)
+    resting_on_history = Assessment(
+        required={Factor.AUTHORITY: availability.authority_of(Source.HISTORY)}
+    )
+    assert resting_on_history.route is Route.INTERNAL_REVIEW
+
+
+def test_a_source_this_request_never_chose_carries_nothing() -> None:
+    """Reading it at all means something was picked for ranking well."""
+    policy = profile_for(Intent.RETURN_POLICY)
+    assert policy.authority_of(Source.COMMERCE) is ReliabilityLevel.UNUSABLE
