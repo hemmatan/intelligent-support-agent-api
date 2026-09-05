@@ -34,6 +34,11 @@ class EscalationReason(StrEnum):
     # link, so asking spends their turn on a question with no useful answer.
     CUSTOMER_NOT_LINKED = "customer_not_linked"
 
+    # Nothing admissible said anything about what was asked. The gap is the
+    # finding: a policy question with no supporting entry is not a weak
+    # answer to be softened, it is an answer nobody here can give.
+    NO_SUPPORTING_EVIDENCE = "no_supporting_evidence"
+
 
 class ClarificationReason(StrEnum):
     """What the customer is being asked for, and why nothing was answered."""
@@ -44,5 +49,16 @@ class ClarificationReason(StrEnum):
     MISSING_PRODUCT_REFERENCE = "missing_product_reference"
 
 
-ReasonCode = EscalationReason | ClarificationReason
-"""Either kind, for the audit trail and anywhere counting both."""
+class ReviewReason(StrEnum):
+    """Why this is waiting for somebody here rather than going out.
+
+    Distinct from an escalation: nothing is wrong with the request, something
+    is wrong with us. The customer is owed an answer we could not assemble,
+    not a specialist.
+    """
+
+    SOURCE_UNAVAILABLE = "source_unavailable"
+
+
+ReasonCode = EscalationReason | ClarificationReason | ReviewReason
+"""Any kind, for the audit trail and anywhere counting all of them."""

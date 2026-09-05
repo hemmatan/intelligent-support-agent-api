@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from app.agent.intent import Intent
-from app.agent.reasons import ClarificationReason, EscalationReason, ReasonCode
+from app.agent.reasons import ClarificationReason, EscalationReason
 from app.agent.reliability import Factor, ReliabilityLevel, Route
 
 
@@ -43,8 +43,13 @@ class Input(StrEnum):
     PRODUCT_REFERENCE = "product_reference"
 
     @property
-    def reason(self) -> ReasonCode:
-        """Why a request stops when this is absent."""
+    def reason(self) -> EscalationReason | ClarificationReason:
+        """Why a request stops when this is absent.
+
+        Never a review reason. Something absent from the request is the
+        customer's to supply or ours to look up, and neither is a fault in
+        the service that a draft would fix.
+        """
         return _REASONS[self]
 
     @property
@@ -59,7 +64,7 @@ class Input(StrEnum):
         return Route.CLARIFICATION
 
 
-_REASONS: dict["Input", ReasonCode] = {
+_REASONS: dict["Input", EscalationReason | ClarificationReason] = {
     Input.ORDER_ID: ClarificationReason.MISSING_ORDER_ID,
     Input.COMMERCE_ACCOUNT: EscalationReason.CUSTOMER_NOT_LINKED,
     Input.PRODUCT_REFERENCE: ClarificationReason.MISSING_PRODUCT_REFERENCE,
