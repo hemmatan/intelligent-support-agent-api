@@ -19,7 +19,11 @@ def route_of(level: ReliabilityLevel) -> Route:
     ("question", "expected"),
     [
         ("How long do I have to return a jacket?", {Fact.RETURN_WINDOW}),
-        ("Can I return sale items?", {Fact.RETURN_ELIGIBILITY}),
+        ("Can I return a jacket?", {Fact.RETURN_ELIGIBILITY}),
+        (
+            "Can I return sale items?",
+            {Fact.RETURN_ELIGIBILITY, Fact.RETURN_SALE_ITEMS},
+        ),
         ("Who pays return shipping?", {Fact.RETURN_SHIPPING_COST}),
         ("Do I need a receipt?", {Fact.PROOF_OF_PURCHASE}),
         ("How long does delivery take?", {Fact.STANDARD_DELIVERY_TIME}),
@@ -101,3 +105,42 @@ def test_the_corpus_states_less_than_the_rules_will_accept() -> None:
         if fact in stated:
             continue
         assert coverage_of(frozenset({fact}), stated) is ReliabilityLevel.UNUSABLE
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Can I return underwear?",
+        "Can I return pierced earrings?",
+        "Can I return a final-sale item?",
+        "Puis-je retourner des articles soldes ?",
+    ],
+    ids=["hygiene exclusion", "hygiene exclusion, plural", "final sale", "french sale"],
+)
+def test_naming_a_carved_out_kind_of_thing_outruns_the_general_rule(
+    question: str,
+) -> None:
+    """One approved value stood for the whole of who may return what.
+
+    The entry states eligibility as "standard_items" and a window of thirty
+    days. That settles a question about an ordinary purchase and nothing else:
+    it does not say which kinds of thing are left out, or how a final-sale
+    item differs, so a question naming one was being rated as answered by a
+    value that never mentioned it.
+
+    The prose does say. It is prose, and no answer is built from a sentence,
+    so these reach a person until the exclusions are claims.
+    """
+    carried = next(entry.facts for entry in load_corpus() if "returns" in entry.id)
+    requested = facts_in(question)
+    assert requested & {Fact.RETURN_EXCLUDED_CATEGORIES, Fact.RETURN_SALE_ITEMS}
+    assert route_of(coverage_of(requested, carried)) is Route.HUMAN_ESCALATION
+
+
+def test_an_ordinary_purchase_is_still_answered() -> None:
+    """The split has to leave the common question working, or it is a ban."""
+    carried = next(entry.facts for entry in load_corpus() if "returns" in entry.id)
+    for question in ("Can I return a jacket?", "Can I send this back?"):
+        assert route_of(coverage_of(facts_in(question), carried)) is (
+            Route.DIRECT_RESPONSE
+        )

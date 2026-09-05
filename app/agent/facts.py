@@ -29,6 +29,8 @@ class Fact(StrEnum):
 
     RETURN_WINDOW = "return_window"
     RETURN_ELIGIBILITY = "return_eligibility"
+    RETURN_EXCLUDED_CATEGORIES = "return_excluded_categories"
+    RETURN_SALE_ITEMS = "return_sale_items"
     RETURN_SHIPPING_COST = "return_shipping_cost"
     PROOF_OF_PURCHASE = "proof_of_purchase"
 
@@ -54,17 +56,48 @@ _RULES: dict[Fact, Sequence[str]] = {
         "delai de retour",
         "jours pour retourner",
     ),
+    # Whether there is a returns policy covering this at all. It settles a
+    # question that names no particular kind of thing, and only that: the
+    # approved claim is one value for the general rule, and a rule cannot say
+    # what it excludes.
     Fact.RETURN_ELIGIBILITY: (
         "can i return",
         "send it back",
         "send this back",
-        "sale items",
         "eligible for a return",
         "eligible for return",
         "which items can",
         "puis-je retourner",
-        "articles soldes",
         "eligible au retour",
+    ),
+    # Naming a kind of thing policies usually carve out. Asked alongside the
+    # general rule, so both are requested and the general one cannot answer
+    # for the pair. Nothing states these, so they reach a person.
+    Fact.RETURN_EXCLUDED_CATEGORIES: (
+        "underwear",
+        "swimwear",
+        "swimsuit",
+        "jewellery",
+        "jewelry",
+        "pierced",
+        "earrings",
+        "hygiene reasons",
+        "sous-vetement",
+        "maillot de bain",
+        "bijou",
+        "boucles d'oreilles",
+        "raisons d'hygiene",
+    ),
+    Fact.RETURN_SALE_ITEMS: (
+        "sale item",
+        "final sale",
+        "clearance",
+        "discounted item",
+        "reduced item",
+        "marked down",
+        "article solde",
+        "articles soldes",
+        "vente definitive",
     ),
     # Nothing states this. Asking for it has to fail rather than be answered
     # from the return window, which is the other number on the same entry.
