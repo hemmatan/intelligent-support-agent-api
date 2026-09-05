@@ -6,7 +6,9 @@ from pydantic import TypeAdapter, ValidationError
 from app.agent.knowledge import (
     PolicyEntry,
     PolicyKind,
+    ReturnPolicyClaims,
     ReturnPolicyEntry,
+    ShippingPolicyClaims,
     ShippingPolicyEntry,
 )
 
@@ -134,3 +136,13 @@ def test_a_delivery_range_must_run_forwards() -> None:
             standard_delivery_days_max=3,
             express_delivery_days=5,
         )
+
+
+def test_every_figure_declares_the_question_it_answers() -> None:
+    """A field missing from STATES is a figure that settles nothing.
+
+    An entry carrying it would look identical to one that could not answer,
+    and coverage would rate it on the fields somebody remembered to map.
+    """
+    for claims in (ReturnPolicyClaims, ShippingPolicyClaims):
+        assert set(claims.STATES) == set(claims.model_fields), claims.__name__

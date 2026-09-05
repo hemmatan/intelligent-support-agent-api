@@ -14,10 +14,10 @@ import json
 import re
 import tomllib
 from collections import defaultdict
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, ClassVar, Literal
 
 from pydantic import (
     BaseModel,
@@ -29,6 +29,8 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+
+from app.agent.facts import Fact
 
 Locale = Literal["en", "fr"]
 
@@ -46,19 +48,46 @@ class PolicyKind(StrEnum):
     SHIPPING_POLICY = "shipping_policy"
 
 
-class ReturnPolicyClaims(BaseModel):
-    """What a return policy may assert."""
+class PolicyClaims(BaseModel):
+    """Figures a policy states, and the questions each of them answers.
+
+    STATES pairs every field with what asking for it would be asking for, so
+    what an entry can settle is read off the same declaration that holds the
+    values. A corpus test refuses a field missing from it: a figure nobody
+    mapped is a figure that silently answers nothing, and an entry carrying it
+    would look no different from one that could not.
+    """
 
     model_config = _STRICT
+
+    STATES: ClassVar[Mapping[str, Fact]] = {}
+
+    @property
+    def facts(self) -> frozenset[Fact]:
+        """What this entry is able to settle."""
+        return frozenset(self.STATES.values())
+
+
+class ReturnPolicyClaims(PolicyClaims):
+    """What a return policy may assert."""
 
     return_window_days: PositiveInt
     eligibility: Literal["standard_items", "all_items", "selected_items"]
 
+    STATES: ClassVar[Mapping[str, Fact]] = {
+        "return_window_days": Fact.RETURN_WINDOW,
+        "eligibility": Fact.RETURN_ELIGIBILITY,
+    }
 
-class ShippingPolicyClaims(BaseModel):
+
+class ShippingPolicyClaims(PolicyClaims):
     """What a shipping policy may assert."""
 
-    model_config = _STRICT
+    STATES: ClassVar[Mapping[str, Fact]] = {
+        "standard_delivery_days_min": Fact.STANDARD_DELIVERY_TIME,
+        "standard_delivery_days_max": Fact.STANDARD_DELIVERY_TIME,
+        "express_delivery_days": Fact.EXPRESS_DELIVERY_TIME,
+    }
 
     standard_delivery_days_min: PositiveInt
     standard_delivery_days_max: PositiveInt
@@ -84,7 +113,7 @@ class BasePolicyEntry(BaseModel):
     locale: Locale
     version: PositiveInt
     approved: bool
-    claims: BaseModel
+    claims: PolicyClaims
     prose_template: str = Field(min_length=1)
 
     @field_validator("prose_template")
@@ -129,6 +158,11 @@ class BasePolicyEntry(BaseModel):
         return _PLACEHOLDER.sub(
             lambda m: str(declared[m.group(1)]), self.prose_template
         )
+
+    @property
+    def facts(self) -> frozenset[Fact]:
+        """What this entry can settle, whatever question brought it back."""
+        return self.claims.facts
 
     @property
     def reference(self) -> str:
