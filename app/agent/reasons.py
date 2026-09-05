@@ -19,6 +19,9 @@ class ReasonCode(StrEnum):
     ACCOUNT_COMPROMISE = "account_compromise"
     LEGAL_THREAT = "legal_threat"
 
+    UNRESOLVED_INTENT = "unresolved_intent"
+    MULTIPLE_INTENTS = "multiple_intents"
+
     CUSTOMER_NOT_LINKED = "customer_not_linked"
     MISSING_ORDER_ID = "missing_order_id"
     MISSING_PRODUCT_REFERENCE = "missing_product_reference"
