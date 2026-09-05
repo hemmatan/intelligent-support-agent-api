@@ -13,12 +13,25 @@ from typing import Protocol, runtime_checkable
 Vector = tuple[float, ...]
 
 
-class EmbeddingUnavailableError(RuntimeError):
-    """The embedder could not answer.
+class EmbeddingError(RuntimeError):
+    """The embedder could not answer."""
 
-    Raised rather than returned so a caller has to decide what to do about it.
-    Retrieval degrades to lexical search; it does not quietly return nothing
-    and let an answerable question look unanswerable.
+
+class EmbeddingUnavailableError(EmbeddingError):
+    """A failure that might not happen next time.
+
+    Timeouts, a model still loading, a bad gateway. Retrieval degrades to
+    lexical search and carries on, because waiting for a second ranker is
+    worse than answering with one.
+    """
+
+
+class EmbeddingMisconfiguredError(EmbeddingError):
+    """A failure that will happen every time.
+
+    A refused token, a model nobody can reach. No amount of retrying fixes a
+    typo, and degrading quietly means the deployment runs for months on half
+    its retrieval while every health check says it is fine.
     """
 
 
@@ -29,7 +42,8 @@ class Embedder(Protocol):
     async def embed(self, texts: Sequence[str]) -> list[Vector]:
         """Return one vector per input, in the order given.
 
-        Raises EmbeddingUnavailableError if it cannot.
+        Raises EmbeddingUnavailableError if it might work later, and
+        EmbeddingMisconfiguredError if it never will.
         """
         ...
 

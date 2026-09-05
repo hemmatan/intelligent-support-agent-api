@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from app.agent.embedding import EmbeddingMisconfiguredError
 from app.agent.knowledge import PolicyCorpusError, load_corpus
 from main import app
 
@@ -39,5 +40,40 @@ async def test_a_broken_corpus_stops_the_application_starting(
     monkeypatch.setattr("main.load_corpus", lambda: load_corpus(tmp_path))
 
     with pytest.raises(PolicyCorpusError):
+        async with app.router.lifespan_context(app):
+            pass  # pragma: no cover — startup raises before the body runs
+
+
+@pytest.mark.asyncio
+async def test_startup_builds_a_searchable_index() -> None:
+    async with app.router.lifespan_context(app):
+        index = app.state.policy_index
+    hits = await index.search("how long do I have to return a jacket", "en")
+    assert hits[0].entry.id == "returns.standard"
+
+
+@pytest.mark.asyncio
+async def test_without_a_token_the_index_is_lexical_and_the_app_still_starts() -> None:
+    """No embedder configured is a supported deployment, not a broken one."""
+    async with app.router.lifespan_context(app):
+        assert app.state.policy_index.semantic_ready is False
+
+
+@pytest.mark.asyncio
+async def test_a_misconfigured_embedder_stops_the_application_starting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A token that will be refused every time is not a degraded mode.
+
+    Running for months on half the retrieval while every health check reports
+    success is the outcome this prevents.
+    """
+
+    class Refused:
+        async def embed(self, texts: object) -> list[tuple[float, ...]]:
+            raise EmbeddingMisconfiguredError("token refused")
+
+    monkeypatch.setattr("main._embedder", Refused)
+    with pytest.raises(EmbeddingMisconfiguredError):
         async with app.router.lifespan_context(app):
             pass  # pragma: no cover — startup raises before the body runs

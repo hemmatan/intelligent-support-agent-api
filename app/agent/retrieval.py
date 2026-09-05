@@ -9,6 +9,7 @@ Two rankers run where an embedder is configured. Words find what the customer
 literally wrote; vectors find what they meant. Neither alone covers both.
 """
 
+import logging
 import math
 import re
 import unicodedata
@@ -28,6 +29,8 @@ from app.agent.knowledge import (
     ShippingPolicyEntry,
 )
 from app.agent.reliability import ReliabilityLevel
+
+_log = logging.getLogger(__name__)
 
 PolicyEntry = ReturnPolicyEntry | ShippingPolicyEntry
 
@@ -311,9 +314,14 @@ class PolicyIndex:
     async def warm(self) -> None:
         """Embed the corpus once, if an embedder was supplied.
 
-        An embedder that cannot answer leaves the index lexical. Refusing to
-        start would take the whole knowledge base offline because one optional
-        ranker is unreachable.
+        A temporary failure leaves the index lexical, loudly. Refusing to start
+        because a second ranker is briefly unreachable would take the whole
+        knowledge base offline over a degraded feature.
+
+        A misconfigured embedder is not caught here. It will fail identically
+        on every future call, and a deployment that quietly runs for months on
+        half its retrieval while reporting itself healthy is worse than one
+        that will not start.
         """
         if self._embedder is None:
             return
@@ -322,7 +330,8 @@ class PolicyIndex:
         ]
         try:
             vectors = await self._embedder.embed([entry.prose for entry in entries])
-        except EmbeddingUnavailableError:
+        except EmbeddingUnavailableError as exc:
+            _log.warning("searching lexically: the embedder is unavailable (%s)", exc)
             return
         self._vectors = {
             entry.reference: vector
@@ -334,7 +343,8 @@ class PolicyIndex:
             return []
         try:
             embedded = await self._embedder.embed([query])
-        except EmbeddingUnavailableError:
+        except EmbeddingUnavailableError as exc:
+            _log.warning("ranking this query lexically: %s", exc)
             return []
         scored = [
             (cosine_similarity(embedded[0], self._vectors[entry.reference]), entry)

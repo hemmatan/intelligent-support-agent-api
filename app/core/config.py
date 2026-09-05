@@ -38,6 +38,12 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=15, gt=0)
     REFRESH_TOKEN_EXPIRE_DAYS: int = Field(default=7, gt=0)
 
+    # Retrieval. Absent, searching stays lexical: an optional second ranker
+    # being unconfigured is not a reason to refuse to start.
+    HUGGINGFACE_API_TOKEN: SecretStr | None = None
+    EMBEDDING_MODEL: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    EMBEDDING_TIMEOUT_SECONDS: float = Field(default=10.0, gt=0)
+
     # CORS. NoDecode suppresses the JSON pre-parse that pydantic-settings
     # applies to list fields, so the validator below sees the raw string.
     CORS_ORIGINS: Annotated[list[str], NoDecode] = [
