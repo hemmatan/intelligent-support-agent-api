@@ -212,9 +212,10 @@ difference is worth measuring — how often answers go out on pristine evidence
 versus evidence that is imperfect but safe — and because tightening the bar
 later should be a routing change, not a rescoring one.
 
-The levels, the per-factor rubric for what each one means, and the reason-code
-and material-claim enumerations live in code as typed definitions, so that
-they cannot drift from a prose copy.
+The levels and the per-factor rubric for what each one means are defined in
+`app/agent/reliability.py`. The reason-code and material-claim enumerations
+belong there too when they are written, rather than being spelled out here
+where a second copy would drift.
 
 ## Gates run before any scoring
 
@@ -238,8 +239,9 @@ promised. Empathy and connective phrasing are not material.
 Each intent has a static profile declaring which factors apply to it. Order
 status does not use knowledge-base relevance; policy questions require it.
 
-The matrix is configuration, not prose: it lives in code as a typed structure
-the tests assert against. Three rules keep it safe:
+The matrix is configuration, not prose. It belongs in code as a typed
+structure the tests assert against, not as a table here. Three rules keep it
+safe:
 
 - `N/A` is assigned only by the profile, never at runtime.
 - A required factor missing at runtime is `UNUSABLE`.
@@ -267,25 +269,33 @@ each material slot carrying a reference to the evidence that supports it.
 Slot values must already be structured. A knowledge-base entry saying "items
 can be returned within 30 days" cannot safely fill `return_window_days=30`
 unless something extracts the number, and a model extracting it puts the
-hallucination back one step earlier, where it is harder to see. Knowledge-base
-entries therefore carry approved structured claims alongside their prose:
+hallucination back one step earlier, where it is harder to see.
 
-```json
-{
-  "id": "returns.standard.en.v1",
-  "locale": "en",
-  "claims": { "return_window_days": 30, "eligibility": "standard_items" },
-  "approved": true
-}
+A figure is therefore authored once, in the claims. The searchable sentences
+name it rather than repeat it, and are rendered when the corpus loads:
+
+```toml
+prose_template = "You can return most items within {return_window_days} days."
+
+[claims]
+return_window_days = 30
+eligibility = "standard_items"
 ```
 
-The prose is indexed for retrieval. Customer-visible slots come only from the
-structured claims.
+The rendered text is what retrieval searches; the claims are what fill slots.
+Neither is a copy of the other, so they cannot come to disagree.
 
-The two representations can drift, and drift here is dangerous: prose edited
-from thirty days to fourteen while the claim still reads 30 renders a
-confidently wrong policy. An entry is approved as a unit, and a test asserts
-every structured value appears in the prose it is published with.
+The first version of this checked instead of rendering — every numeric claim
+had to appear somewhere in the prose. It passed when the figure appeared in
+an unrelated sentence, reporting a consistency it had not established. A
+template naming its figures makes the copying error inexpressible rather than
+detectable, at the price of banning literal digits: any number worth stating
+in policy text has to become a claim.
+
+Meaning is not covered. A template reading "returns are forbidden for
+{return_window_days} days" renders the right figure into the wrong rule, and
+only approval catches that.
+
 Grounding validation is therefore a set of structural checks — is the template
 approved, does the locale match, does every material slot cite evidence, does
 the evidence contain the value — and not an attempt to detect falsehood in

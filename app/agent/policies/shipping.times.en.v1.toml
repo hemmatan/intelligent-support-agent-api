@@ -4,10 +4,13 @@ version = 1
 approved = true
 kind = "shipping_policy"
 
-prose = """
-Where is my order? Standard delivery takes 2 to 3 business days from
-dispatch. Express delivery arrives within 1 business day. Orders placed
-after 3pm are dispatched the next working day. You can track your order
+# Opens on the question it cannot answer. Retrieval will match every word of
+# "where is my order" against this entry, which is the point: only the order
+# system knows where a particular order is.
+prose_template = """
+Where is my order? Standard delivery takes {standard_delivery_days_min} to
+{standard_delivery_days_max} business days from dispatch. Express delivery
+arrives within {express_delivery_days} business day. You can track your order
 from your account once it has shipped.
 """
 

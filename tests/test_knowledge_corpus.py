@@ -14,10 +14,10 @@ from app.agent.knowledge import (
 ENTRY = """
 id = "returns.standard"
 locale = "en"
-version = {version}
-approved = {approved}
+version = VERSION
+approved = APPROVED
 kind = "return_policy"
-prose = "You can return most items within 30 days of delivery."
+prose_template = "Return most items within {return_window_days} days."
 
 [claims]
 return_window_days = 30
@@ -26,9 +26,8 @@ eligibility = "standard_items"
 
 
 def write(directory: Path, name: str, **fields: object) -> None:
-    body = ENTRY.format(
-        version=fields.get("version", 1),
-        approved=str(fields.get("approved", True)).lower(),
+    body = ENTRY.replace("VERSION", str(fields.get("version", 1))).replace(
+        "APPROVED", str(fields.get("approved", True)).lower()
     )
     (directory / name).write_text(body)
 
@@ -43,7 +42,7 @@ def entry(
             "version": version,
             "approved": approved,
             "kind": "return_policy",
-            "prose": "You can return most items within 30 days of delivery.",
+            "prose_template": "Return most items within {return_window_days} days.",
             "claims": {"return_window_days": 30, "eligibility": "standard_items"},
         }
     )
@@ -92,7 +91,9 @@ def test_malformed_toml_is_rejected_at_load(tmp_path: Path) -> None:
 
 def test_content_that_fails_the_model_is_rejected_at_load(tmp_path: Path) -> None:
     (tmp_path / "returns.standard.en.v1.toml").write_text(
-        ENTRY.format(version=1, approved="true").replace("30", '"about a month"')
+        ENTRY.replace("VERSION", "1")
+        .replace("APPROVED", "true")
+        .replace("return_window_days = 30", 'return_window_days = "about a month"')
     )
     with pytest.raises(PolicyCorpusError, match="not a valid policy"):
         load_corpus(tmp_path)
@@ -134,7 +135,11 @@ def test_translations_must_be_the_same_kind_of_policy() -> None:
             "version": 1,
             "approved": True,
             "kind": "shipping_policy",
-            "prose": "Livraison en 2 a 3 jours, express en 1 jour.",
+            "prose_template": (
+                "Livraison en {standard_delivery_days_min} a "
+                "{standard_delivery_days_max} jours, express en "
+                "{express_delivery_days} jour."
+            ),
             "claims": {
                 "standard_delivery_days_min": 2,
                 "standard_delivery_days_max": 3,

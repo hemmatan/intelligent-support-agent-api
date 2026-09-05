@@ -1,9 +1,12 @@
 """Approved policy entries: the knowledge the agent is allowed to assert.
 
-Every entry holds the same fact twice. `prose` is what retrieval searches;
-`claims` is what fills template slots. Nothing ever reads a value out of a
-sentence, which is what keeps grounding a structural check rather than an
-attempt to detect falsehood in text.
+A figure is authored once, in `claims`. The searchable sentences are written
+as `prose_template` with the figure named rather than repeated, and rendered
+when the corpus loads. Nothing reads a value out of a sentence, and no value
+is written down twice, so the two cannot come to disagree.
+
+The templates here produce text for retrieval to search. Customer-visible
+text comes from response templates, which are a different thing entirely.
 """
 
 import hashlib
@@ -23,10 +26,15 @@ from pydantic import (
     PositiveInt,
     TypeAdapter,
     ValidationError,
+    field_validator,
     model_validator,
 )
 
 Locale = Literal["en", "fr"]
+
+# Only a bare name. Attribute access, indexing and format specifications are
+# not forbidden so much as inexpressible.
+_PLACEHOLDER = re.compile(r"\{(\w+)\}")
 
 _STRICT = ConfigDict(extra="forbid", frozen=True, strict=True)
 
@@ -76,7 +84,51 @@ class BasePolicyEntry(BaseModel):
     locale: Locale
     version: PositiveInt
     approved: bool
-    prose: str = Field(min_length=1)
+    claims: BaseModel
+    prose_template: str = Field(min_length=1)
+
+    @field_validator("prose_template")
+    @classmethod
+    def strip_surrounding_whitespace(cls, value: str) -> str:
+        """TOML multiline strings open on a newline; that is not authored text."""
+        return value.strip()
+
+    @model_validator(mode="after")
+    def check_every_figure_comes_from_a_claim(self) -> "BasePolicyEntry":
+        """Refuse a template that could disagree with its claims.
+
+        Digits are banned outright, which is a real constraint: any number
+        worth stating in policy prose has to become a structured claim, even
+        ones that are not really policy facts. A dispatch cutoff of 3pm needs
+        a claim or it needs deleting. That price buys an entry where every
+        figure in the text has exactly one authored source.
+        """
+        if re.search(r"\d", self.prose_template):
+            raise ValueError(
+                "prose_template contains a literal digit; name a claim instead"
+            )
+        declared = self.claims.model_dump()
+        used = set(_PLACEHOLDER.findall(self.prose_template))
+        unknown = used - declared.keys()
+        if unknown:
+            raise ValueError(f"prose_template names undeclared {sorted(unknown)}")
+        numeric = {
+            name
+            for name, value in declared.items()
+            if isinstance(value, int) and not isinstance(value, bool)
+        }
+        unused = numeric - used
+        if unused:
+            raise ValueError(f"prose_template never states {sorted(unused)}")
+        return self
+
+    @property
+    def prose(self) -> str:
+        """The sentences retrieval searches, rendered from the claims."""
+        declared = self.claims.model_dump()
+        return _PLACEHOLDER.sub(
+            lambda m: str(declared[m.group(1)]), self.prose_template
+        )
 
     @property
     def reference(self) -> str:
@@ -142,7 +194,6 @@ class PolicyCorpus:
         self._reject_repeated_identities()
         self._reject_competing_approved_versions()
         self._reject_approved_versions_that_disagree_across_locales()
-        self._reject_numbers_absent_from_prose()
         self._reject_claims_that_differ_by_locale()
 
     def _reject_repeated_identities(self) -> None:
@@ -185,28 +236,6 @@ class PolicyCorpus:
                     for locale, version in sorted(by_locale.items())
                 )
                 raise PolicyCorpusError(f"{policy_id} is approved at {stated}")
-
-    def _reject_numbers_absent_from_prose(self) -> None:
-        """Every numeric claim has to appear, as that whole number, in the prose.
-
-        This catches a value edited on one side and not the other, which is
-        the failure that would render a withdrawn figure confidently. It is
-        not a check that the two say the same thing: prose reading "all items"
-        against eligibility "standard_items" passes here and is caught only by
-        whoever approves the entry.
-
-        Numbers must be written as digits. "Thirty days" fails, which is a
-        constraint on how policy is written rather than a defect.
-        """
-        for entry in self._entries:
-            for name, value in entry.claims.model_dump().items():
-                if isinstance(value, bool) or not isinstance(value, int):
-                    continue
-                if not re.search(rf"(?<!\d){value}(?!\d)", entry.prose):
-                    raise PolicyCorpusError(
-                        f"{entry.reference} claims {name} = {value}, "
-                        f"which does not appear in its prose"
-                    )
 
     def _reject_claims_that_differ_by_locale(self) -> None:
         """One policy at one version means one rule, whatever language it is in.

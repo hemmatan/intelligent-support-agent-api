@@ -19,7 +19,7 @@ VALID = {
     "approved": True,
     "kind": "return_policy",
     "claims": {"return_window_days": 30, "eligibility": "standard_items"},
-    "prose": "You can return most items within 30 days of delivery.",
+    "prose_template": "Return most items within {return_window_days} days.",
 }
 
 
@@ -70,7 +70,10 @@ def test_a_kind_cannot_carry_another_kinds_claims() -> None:
 
 def test_the_reference_names_the_entry_not_its_content() -> None:
     assert entry().reference == "kb:returns.standard.en.v1"
-    assert entry(prose="Rewritten entirely.").reference == "kb:returns.standard.en.v1"
+    assert (
+        entry(prose_template="Rewritten, still {return_window_days} days.").reference
+        == "kb:returns.standard.en.v1"
+    )
 
 
 def test_the_hash_is_stable_across_field_order() -> None:
@@ -81,7 +84,7 @@ def test_the_hash_is_stable_across_field_order() -> None:
 @pytest.mark.parametrize(
     "change",
     [
-        {"prose": "You can return most items within 14 days of delivery."},
+        {"prose_template": "Send most items back within {return_window_days} days."},
         {"claims": {"return_window_days": 14, "eligibility": "standard_items"}},
         {"approved": False},
         {"version": 2},
