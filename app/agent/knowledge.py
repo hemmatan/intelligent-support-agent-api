@@ -8,10 +8,20 @@ attempt to detect falsehood in text.
 
 import hashlib
 import json
+import tomllib
+from collections.abc import Iterator, Sequence
 from enum import StrEnum
+from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, PositiveInt
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PositiveInt,
+    TypeAdapter,
+    ValidationError,
+)
 
 Locale = Literal["en", "fr"]
 
@@ -92,3 +102,83 @@ class ShippingPolicyEntry(BasePolicyEntry):
 PolicyEntry = Annotated[
     ReturnPolicyEntry | ShippingPolicyEntry, Field(discriminator="kind")
 ]
+
+
+PolicyEntryAdapter: TypeAdapter[ReturnPolicyEntry | ShippingPolicyEntry] = TypeAdapter(
+    PolicyEntry
+)
+
+DEFAULT_POLICY_DIR = Path(__file__).parent / "policies"
+
+
+class PolicyCorpusError(RuntimeError):
+    """The corpus on disk cannot be trusted, so it is not loaded at all."""
+
+
+class PolicyCorpus:
+    """Every policy entry the agent may draw on.
+
+    Identity is id, locale and version together, so an older version can stay
+    in the corpus and keep an audit reference resolvable. Only one version per
+    id and locale may be approved at a time — two would leave the choice of
+    which policy is in force to whatever happened to sort first.
+    """
+
+    def __init__(self, entries: Sequence[ReturnPolicyEntry | ShippingPolicyEntry]):
+        self._entries = tuple(entries)
+        self._reject_repeated_identities()
+        self._reject_competing_approved_versions()
+
+    def _reject_repeated_identities(self) -> None:
+        seen: set[tuple[str, str, int]] = set()
+        for entry in self._entries:
+            identity = (entry.id, entry.locale, entry.version)
+            if identity in seen:
+                raise PolicyCorpusError(f"{entry.reference} is defined more than once")
+            seen.add(identity)
+
+    def _reject_competing_approved_versions(self) -> None:
+        approved: dict[tuple[str, str], int] = {}
+        for entry in self._entries:
+            if not entry.approved:
+                continue
+            key = (entry.id, entry.locale)
+            if key in approved:
+                raise PolicyCorpusError(
+                    f"{entry.id} ({entry.locale}) has two approved versions: "
+                    f"v{approved[key]} and v{entry.version}"
+                )
+            approved[key] = entry.version
+
+    def __iter__(self) -> Iterator[ReturnPolicyEntry | ShippingPolicyEntry]:
+        return iter(self._entries)
+
+    def __len__(self) -> int:
+        return len(self._entries)
+
+    def approved(self) -> tuple[ReturnPolicyEntry | ShippingPolicyEntry, ...]:
+        """Entries a response may cite. Drafts are readable but never citable."""
+        return tuple(entry for entry in self._entries if entry.approved)
+
+
+def load_corpus(directory: Path = DEFAULT_POLICY_DIR) -> PolicyCorpus:
+    """Parse every TOML file in `directory`, or raise without loading any.
+
+    The filename has to restate the identity inside the file. It is redundant
+    on purpose: a copied file whose fields were half-edited is the easiest
+    mistake to make here and the hardest to notice by reading.
+    """
+    entries = []
+    for path in sorted(directory.glob("*.toml")):
+        try:
+            with path.open("rb") as handle:
+                entry = PolicyEntryAdapter.validate_python(tomllib.load(handle))
+        except (tomllib.TOMLDecodeError, ValidationError) as exc:
+            raise PolicyCorpusError(f"{path.name} is not a valid policy") from exc
+        expected = f"{entry.id}.{entry.locale}.v{entry.version}.toml"
+        if path.name != expected:
+            raise PolicyCorpusError(f"{path.name} declares itself to be {expected}")
+        entries.append(entry)
+    if not entries:
+        raise PolicyCorpusError(f"no policy files found in {directory}")
+    return PolicyCorpus(entries)

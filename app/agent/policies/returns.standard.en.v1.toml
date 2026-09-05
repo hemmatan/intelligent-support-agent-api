@@ -1,0 +1,17 @@
+id = "returns.standard"
+locale = "en"
+version = 1
+approved = true
+kind = "return_policy"
+
+prose = """
+You can return most items within 30 days of delivery for a full refund.
+Items must be unworn, in their original packaging, and sent back with proof
+of purchase. Underwear, swimwear and pierced jewellery cannot be returned
+for hygiene reasons. Sale items follow the same 30 days unless they are
+marked final sale.
+"""
+
+[claims]
+return_window_days = 30
+eligibility = "standard_items"

@@ -1,0 +1,18 @@
+id = "returns.standard"
+locale = "fr"
+version = 1
+approved = true
+kind = "return_policy"
+
+prose = """
+Vous pouvez retourner la plupart des articles dans les 30 jours suivant la
+livraison pour un remboursement intégral. Les articles doivent être non
+portés, dans leur emballage d'origine, et renvoyés avec une preuve d'achat.
+Les sous-vêtements, maillots de bain et bijoux percés ne peuvent pas être
+retournés pour des raisons d'hygiène. Les articles soldés bénéficient des
+mêmes 30 jours sauf mention de vente définitive.
+"""
+
+[claims]
+return_window_days = 30
+eligibility = "standard_items"

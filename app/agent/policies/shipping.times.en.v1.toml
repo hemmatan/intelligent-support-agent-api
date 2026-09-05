@@ -1,0 +1,17 @@
+id = "shipping.times"
+locale = "en"
+version = 1
+approved = true
+kind = "shipping_policy"
+
+prose = """
+Where is my order? Standard delivery takes 2 to 3 business days from
+dispatch. Express delivery arrives within 1 business day. Orders placed
+after 3pm are dispatched the next working day. You can track your order
+from your account once it has shipped.
+"""
+
+[claims]
+standard_delivery_days_min = 2
+standard_delivery_days_max = 3
+express_delivery_days = 1
