@@ -18,3 +18,7 @@ class ReasonCode(StrEnum):
     SUSPECTED_FRAUD = "suspected_fraud"
     ACCOUNT_COMPROMISE = "account_compromise"
     LEGAL_THREAT = "legal_threat"
+
+    CUSTOMER_NOT_LINKED = "customer_not_linked"
+    MISSING_ORDER_ID = "missing_order_id"
+    MISSING_PRODUCT_REFERENCE = "missing_product_reference"
