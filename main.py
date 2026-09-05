@@ -7,6 +7,7 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.agent.knowledge import load_corpus
 from app.api.auth import router as auth_router
 from app.api.health import router as health_router
 from app.core.config import settings
@@ -22,6 +23,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     close() releases the engine permanently, so this application object
     supports a single lifespan cycle per process.
     """
+    # Policy that fails validation should stop the process here, while nobody
+    # is waiting on an answer, rather than on the first customer to ask.
+    app.state.policies = load_corpus()
     yield
     if sessionmanager._engine is not None:
         # Close the DB connection
