@@ -40,6 +40,25 @@ _PLACEHOLDER = re.compile(r"\{(\w+)\}")
 
 _STRICT = ConfigDict(extra="forbid", frozen=True, strict=True)
 
+# How this language runs a list together. Nothing else about the sentence
+# changes between locales, because the rest of it is authored per locale.
+_JOINS: Mapping[str, str] = {"en": "and", "fr": "et"}
+
+
+class ItemCategory(StrEnum):
+    """A kind of thing a policy can single out.
+
+    A closed set of slugs rather than free text, for three structural reasons.
+    Claims are compared across languages, and prose would differ by language
+    while the rule does not. A slug is the key its wording is looked up by,
+    and free text has no key. And a closed set can be checked: every value has
+    approved words, and no words exist for a value nothing can take.
+    """
+
+    UNDERWEAR = "underwear"
+    SWIMWEAR = "swimwear"
+    PIERCED_JEWELLERY = "pierced_jewellery"
+
 
 class PolicyKind(StrEnum):
     """Selects which claims a policy is allowed to make."""
@@ -79,14 +98,30 @@ class PolicyClaims(BaseModel):
 
 
 class ReturnPolicyClaims(PolicyClaims):
-    """What a return policy may assert."""
+    """What a return policy may assert.
+
+    One field per independently askable fact. How long somebody has, whether a
+    given kind of thing is excluded, and whether a receipt is needed are three
+    questions a customer asks separately, so they are three claims. Collapsing
+    them is what let one approved value stand for the whole rule.
+    """
 
     return_window_days: PositiveInt
     eligibility: Literal["standard_items", "all_items", "selected_items"]
+    # Written in the file as an array of the values. Strict mode relaxes the
+    # sequence and its members separately, so both say so.
+    excluded_categories: tuple[Annotated[ItemCategory, Field(strict=False)], ...] = (
+        Field(strict=False)
+    )
+    final_sale_returnable: bool
+    proof_of_purchase_required: bool
 
     STATES: ClassVar[Mapping[str, Fact]] = {
         "return_window_days": Fact.RETURN_WINDOW,
         "eligibility": Fact.RETURN_ELIGIBILITY,
+        "excluded_categories": Fact.RETURN_EXCLUDED_CATEGORIES,
+        "final_sale_returnable": Fact.RETURN_SALE_ITEMS,
+        "proof_of_purchase_required": Fact.PROOF_OF_PURCHASE,
     }
 
 
@@ -125,6 +160,11 @@ class BasePolicyEntry(BaseModel):
     approved: bool
     claims: PolicyClaims
     prose_template: str = Field(min_length=1)
+    # This locale's words for each value the claims hold. The claim is the
+    # fact; this is how the fact is spelled here. A figure prints as itself in
+    # any language and a slug does not, so without these the searchable text
+    # would carry an internal token and match nothing anybody types.
+    words: Mapping[str, str] = Field(default_factory=dict)
 
     @field_validator("prose_template")
     @classmethod
@@ -148,6 +188,7 @@ class BasePolicyEntry(BaseModel):
             )
         declared = self.claims.model_dump()
         used = set(_PLACEHOLDER.findall(self.prose_template))
+        folded = _PLACEHOLDER.sub(" ", self.prose_template).casefold()
         unknown = used - declared.keys()
         if unknown:
             raise ValueError(f"prose_template names undeclared {sorted(unknown)}")
@@ -159,14 +200,56 @@ class BasePolicyEntry(BaseModel):
         unused = numeric - used
         if unused:
             raise ValueError(f"prose_template never states {sorted(unused)}")
+
+        # Every named value the claims hold has to have words here, or the
+        # searchable text carries a slug nobody would ever type.
+        named = {
+            value
+            for held in declared.values()
+            for value in (held if isinstance(held, list | tuple) else [held])
+            if isinstance(value, str)
+        }
+        unwritten = named - self.words.keys()
+        if unwritten:
+            raise ValueError(f"no words for {sorted(unwritten)}")
+        spare = self.words.keys() - named
+        if spare:
+            raise ValueError(f"{sorted(spare)} is not a value these claims hold")
+
+        # And having words, it must be rendered rather than typed. This is the
+        # digit ban applied to everything that is not a digit: a value spelled
+        # out by hand is a second copy of a claim, free to drift from the
+        # first, and the drift makes an entry findable by a word it no longer
+        # states or unfindable by one it does.
+        typed = sorted(
+            word for word in self.words.values() if word.casefold() in folded
+        )
+        if typed:
+            raise ValueError(f"prose_template spells out {typed}; name the claim")
         return self
+
+    def _spoken(self, value: object) -> str:
+        """One claim value as this language writes it.
+
+        Figures print as themselves. Anything named — a slug, a choice — goes
+        through the wording, because printing it raw puts an internal token in
+        the text retrieval searches, where it matches nothing a customer types.
+        """
+        if isinstance(value, list | tuple):
+            spoken = [self._spoken(item) for item in value]
+            if len(spoken) < 2:
+                return "".join(spoken)
+            return f"{', '.join(spoken[:-1])} {_JOINS[self.locale]} {spoken[-1]}"
+        if isinstance(value, str):
+            return self.words[value]
+        return str(value)
 
     @property
     def prose(self) -> str:
         """The sentences retrieval searches, rendered from the claims."""
         declared = self.claims.model_dump()
         return _PLACEHOLDER.sub(
-            lambda m: str(declared[m.group(1)]), self.prose_template
+            lambda m: self._spoken(declared[m.group(1)]), self.prose_template
         )
 
     @property

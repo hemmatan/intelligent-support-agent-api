@@ -63,8 +63,15 @@ def entry(
             "version": version,
             "approved": approved,
             "kind": "return_policy",
-            "prose_template": "Return most items within {return_window_days} days.",
-            "claims": {"return_window_days": 30, "eligibility": "standard_items"},
+            "prose_template": "Return {eligibility} within {return_window_days} days.",
+            "claims": {
+                "return_window_days": 30,
+                "eligibility": "standard_items",
+                "excluded_categories": ["underwear"],
+                "final_sale_returnable": False,
+                "proof_of_purchase_required": True,
+            },
+            "words": {"standard_items": "most items", "underwear": "underwear"},
         }
     )
 

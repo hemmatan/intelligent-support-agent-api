@@ -11,7 +11,7 @@ from app.agent.knowledge import (
     load_corpus,
 )
 
-TEMPLATE = "You can return most items within {return_window_days} days."
+TEMPLATE = "You can return {eligibility} within {return_window_days} days."
 
 
 def entry(
@@ -21,6 +21,7 @@ def entry(
     days: int = 30,
     approved: bool | None = None,
     prose_template: str = TEMPLATE,
+    words: dict[str, str] | None = None,
 ) -> ReturnPolicyEntry:
     return ReturnPolicyEntry.model_validate(
         {
@@ -30,7 +31,15 @@ def entry(
             "approved": locale == "en" if approved is None else approved,
             "kind": "return_policy",
             "prose_template": prose_template,
-            "claims": {"return_window_days": days, "eligibility": "standard_items"},
+            "claims": {
+                "return_window_days": days,
+                "eligibility": "standard_items",
+                "excluded_categories": ["underwear"],
+                "final_sale_returnable": False,
+                "proof_of_purchase_required": True,
+            },
+            "words": words
+            or {"standard_items": "most items", "underwear": "underwear"},
         }
     )
 
@@ -63,7 +72,7 @@ def test_a_repeated_placeholder_renders_every_time() -> None:
 def test_a_literal_digit_in_a_template_is_rejected() -> None:
     """The drift this design removes: a figure written down a second time."""
     with pytest.raises(ValidationError, match="literal digit"):
-        entry(prose_template="You can return most items within 30 days.")
+        entry(prose_template="You can return {eligibility} within 30 days.")
 
 
 def test_a_placeholder_naming_no_claim_is_rejected() -> None:
@@ -74,7 +83,7 @@ def test_a_placeholder_naming_no_claim_is_rejected() -> None:
 def test_a_numeric_claim_the_template_never_states_is_rejected() -> None:
     """Otherwise an author could stop using placeholders and drift again."""
     with pytest.raises(ValidationError, match=r"never states \['return_window_days'\]"):
-        entry(prose_template="You can return most items. Conditions apply.")
+        entry(prose_template="You can return {eligibility}. Conditions apply.")
 
 
 def test_a_non_numeric_claim_need_not_appear() -> None:
@@ -129,3 +138,67 @@ def test_locales_of_one_version_must_still_agree_on_the_rule() -> None:
                 ),
             ]
         )
+
+
+def test_a_value_the_claims_hold_may_not_be_typed_into_the_prose() -> None:
+    """The digit ban, applied to everything that is not a digit.
+
+    A word spelled out by hand is a second copy of a claim, free to drift from
+    the first. The drift is the interesting part: an entry becomes findable by
+    a word it no longer states, or unfindable by one it does, and neither shows
+    up as a wrong answer until somebody asks.
+    """
+    with pytest.raises(ValidationError, match="spells out"):
+        entry(prose_template="Return most items within {return_window_days} days.")
+
+
+def test_a_value_with_no_words_here_is_refused() -> None:
+    """Otherwise the searchable text carries a slug nobody would type."""
+    with pytest.raises(ValidationError, match="no words for"):
+        ReturnPolicyEntry.model_validate(
+            {
+                "id": "returns.standard",
+                "locale": "en",
+                "version": 1,
+                "approved": True,
+                "kind": "return_policy",
+                "prose_template": (
+                    "Return {eligibility} within {return_window_days} days. "
+                    "Not {excluded_categories}."
+                ),
+                "claims": {
+                    "return_window_days": 30,
+                    "eligibility": "standard_items",
+                    "excluded_categories": ["underwear", "swimwear"],
+                    "final_sale_returnable": False,
+                    "proof_of_purchase_required": True,
+                },
+                "words": {"standard_items": "most items", "underwear": "underwear"},
+            }
+        )
+
+
+def test_words_for_a_value_the_claims_never_hold_are_refused() -> None:
+    """Wording nothing can select is wording nobody reviews."""
+    with pytest.raises(ValidationError, match="is not a value these claims hold"):
+        entry(
+            words={
+                "standard_items": "most items",
+                "underwear": "underwear",
+                "swimwear": "swimwear",
+            }
+        )
+
+
+def test_a_list_reads_as_a_sentence_in_either_language() -> None:
+    """Rendered, not printed. A raw sequence would put brackets and internal
+    tokens into the text retrieval searches, matching nothing anybody types.
+    """
+    english, french = (
+        next(e for e in load_corpus() if e.id == "returns.standard" and e.locale == loc)
+        for loc in ("en", "fr")
+    )
+    assert "underwear, swimwear and pierced jewellery" in english.prose
+    assert "sous-vêtements, maillots de bain et bijoux percés" in french.prose
+    for rendered in (english.prose, french.prose):
+        assert "[" not in rendered and "_" not in rendered

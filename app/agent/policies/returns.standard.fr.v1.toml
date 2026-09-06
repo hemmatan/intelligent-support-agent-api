@@ -5,15 +5,23 @@ approved = true
 kind = "return_policy"
 
 prose_template = """
-Vous pouvez retourner la plupart des articles dans les {return_window_days}
-jours suivant la livraison pour un remboursement intégral. Les articles
-doivent être non portés, dans leur emballage d'origine, et renvoyés avec une
-preuve d'achat. Les sous-vêtements, maillots de bain et bijoux percés ne
-peuvent pas être retournés pour des raisons d'hygiène. Les articles soldés
-bénéficient des mêmes {return_window_days} jours sauf mention de vente
-définitive.
+Vous pouvez retourner {eligibility} dans les {return_window_days} jours suivant
+la livraison pour un remboursement intégral. Les articles doivent être non
+portés, dans leur emballage d'origine, et renvoyés avec une preuve d'achat.
+Nous n'acceptons pas le retour de {excluded_categories} pour des raisons
+d'hygiène. Les articles soldés bénéficient des mêmes {return_window_days} jours
+sauf mention de vente définitive.
 """
 
 [claims]
 return_window_days = 30
 eligibility = "standard_items"
+excluded_categories = ["underwear", "swimwear", "pierced_jewellery"]
+final_sale_returnable = false
+proof_of_purchase_required = true
+
+[words]
+standard_items = "la plupart des articles"
+underwear = "sous-vêtements"
+swimwear = "maillots de bain"
+pierced_jewellery = "bijoux percés"

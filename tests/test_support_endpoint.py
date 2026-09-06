@@ -217,10 +217,10 @@ GOLDEN: list[tuple[str, str, dict[str, str], str, str]] = [
     ),
     (
         "en",
-        "a carve-out the claims do not state",
+        "a carve-out the policy states but has no wording for yet",
         {"message": "Can I return underwear?"},
         "internal_review",
-        "evidence_does_not_cover_the_question",
+        "nothing_approved_to_say",
     ),
     (
         "en",
@@ -429,7 +429,13 @@ async def test_a_request_held_here_does_not_claim_to_have_gone_elsewhere(
     """
     headers = await signed_in()  # type: ignore[misc]
     held = await async_client.post(
-        MESSAGES, json={"message": "Can I return underwear?"}, headers=headers
+        MESSAGES,
+        json={
+            "message": (
+                "How long do I have to return a jacket? And who pays return shipping?"
+            )
+        },
+        headers=headers,
     )
     passed = await async_client.post(
         MESSAGES,

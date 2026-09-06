@@ -20,8 +20,15 @@ VALID = {
     "version": 1,
     "approved": True,
     "kind": "return_policy",
-    "claims": {"return_window_days": 30, "eligibility": "standard_items"},
-    "prose_template": "Return most items within {return_window_days} days.",
+    "claims": {
+        "return_window_days": 30,
+        "eligibility": "standard_items",
+        "excluded_categories": ["underwear"],
+        "final_sale_returnable": False,
+        "proof_of_purchase_required": True,
+    },
+    "words": {"standard_items": "most items", "underwear": "underwear"},
+    "prose_template": "Return {eligibility} within {return_window_days} days.",
 }
 
 
@@ -86,8 +93,16 @@ def test_the_hash_is_stable_across_field_order() -> None:
 @pytest.mark.parametrize(
     "change",
     [
-        {"prose_template": "Send most items back within {return_window_days} days."},
-        {"claims": {"return_window_days": 14, "eligibility": "standard_items"}},
+        {"prose_template": "Send {eligibility} back within {return_window_days} days."},
+        {
+            "claims": {
+                "return_window_days": 14,
+                "eligibility": "standard_items",
+                "excluded_categories": ["underwear"],
+                "final_sale_returnable": False,
+                "proof_of_purchase_required": True,
+            }
+        },
         {"approved": False},
         {"version": 2},
     ],
