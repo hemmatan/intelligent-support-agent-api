@@ -157,3 +157,56 @@ def test_asking_about_your_own_account_is_not_reporting_it(message: str) -> None
     The override wants the past tense as well.
     """
     assert risks_in(message) == frozenset()
+
+
+# Each pair is the same subject asked about and reported, so a rule that fires
+# on the topic rather than on the event fails one half of it. The model tried
+# for this job scored the left column higher than the right, which is why the
+# pairs are written down rather than the reports alone.
+BOUNDARIES = [
+    ("How can I keep my account safe from fraud?", "Someone got into my account"),
+    ("How do you protect accounts?", "Someone logged into my account last night"),
+    (
+        "How can I avoid unauthorised charges?",
+        "There are unauthorised charges on my card",
+    ),
+    ("How to protect my card from being stolen?", "My card was stolen"),
+    ("What is your policy on double billing?", "I was charged twice"),
+    ("Comment garder mon compte en securite ?", "Quelqu'un a accede a mon compte"),
+    ("Comment eviter que ma carte soit volee ?", "Ma carte a ete volee"),
+    ("Comment prevenir la fraude ?", "Je n'ai pas commande cet article"),
+]
+
+
+@pytest.mark.parametrize(("question", "report"), BOUNDARIES, ids=lambda v: v[:34])
+def test_asking_about_a_subject_and_reporting_it_go_different_ways(
+    question: str, report: str
+) -> None:
+    """The distinction the whole detector exists to draw.
+
+    Written as pairs because either half alone passes for the wrong reason: a
+    rule that never fires satisfies the questions, and one that always fires
+    satisfies the reports.
+    """
+    assert risks_in(question) == frozenset(), question
+    assert risks_in(report) != frozenset(), report
+
+
+def test_a_report_is_still_read_when_it_arrives_inside_a_request() -> None:
+    """The sentence a model was brought in for, and could not tell from a
+    question about the same subject. It is listed instead.
+    """
+    assert RiskReason.SUSPECTED_FRAUD in risks_in(
+        "I need to return this because a stranger made purchases using my account"
+    )
+
+
+def test_what_the_vocabulary_does_not_cover_is_recorded_not_assumed() -> None:
+    """A wording nobody listed is a wording nobody catches.
+
+    This is the bound the design accepts, and it is written down in
+    docs/architecture.md rather than discovered. The example is deliberate: it
+    reports a real incident in words the lists do not carry, and it proceeds.
+    """
+    unlisted = "an individual has been helping themselves to my funds"
+    assert risks_in(unlisted) == frozenset()

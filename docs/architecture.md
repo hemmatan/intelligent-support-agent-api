@@ -384,6 +384,33 @@ negation is past what phrase matching can do, so "I was not charged twice"
 reaches somebody. That is a known false positive with a test naming it, not
 an oversight.
 
+### What the risk detector knows, and what it does not
+
+Risk is decided by listed wordings and nothing else. There is no model in this
+path, and the reason is recorded under *Considered and rejected*.
+
+A message escalates when it carries a wording from one of the four categories,
+unless the sentence carrying it is asking about the subject rather than
+reporting it — and a customer describing their own account in the past tense
+overrules that, since one sentence can do both.
+
+The bound follows from the method: **a wording nobody listed is a wording
+nobody catches.** "An individual has been helping themselves to my funds" is a
+real report in words the lists do not hold, and it proceeds as an ordinary
+message. That is accepted for this version, and it is the cost of the
+alternative having been measured and rejected rather than assumed.
+
+Two things keep the bound honest. Every category is tested as a **pair** — the
+same subject asked about and reported, in English and French — because either
+half alone passes for the wrong reason: a rule that never fires satisfies the
+questions, and one that always fires satisfies the reports. And the lists lean
+towards escalating, so "I was not charged twice" reaches a person. Negation is
+past what phrase matching can do, and a few seconds of somebody's attention is
+the cheaper of the two mistakes.
+
+Extending it means adding wordings and a pair to prove them, which is the only
+maintenance this design asks for and the only one it can be trusted to receive.
+
 ## Locale
 
 Answers are given in the customer's locale, and what that requires depends on
