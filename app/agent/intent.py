@@ -137,13 +137,26 @@ _RULES: dict[Intent, Sequence[str]] = {
 }
 
 
-class ClassifierUnavailableError(RuntimeError):
-    """The safety pass could not be completed.
+class ClassifierError(RuntimeError):
+    """The classifier could not answer."""
+
+
+class ClassifierUnavailableError(ClassifierError):
+    """The safety pass could not be completed this time.
 
     Transient by definition: a timeout, a refused connection, a provider
     having a bad afternoon. Implementations raise this rather than letting a
     transport error out, because the request has to be able to tell "nothing
     looked wrong" apart from "nobody looked".
+    """
+
+
+class ClassifierMisconfiguredError(ClassifierError):
+    """The safety pass will not be completed on any request.
+
+    A refused token, a model nobody can reach. Retrying does not fix a typo,
+    and a deployment that treats one as weather quietly sends every message
+    to review — or, worse, is read as having looked.
     """
 
 
