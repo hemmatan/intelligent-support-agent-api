@@ -29,15 +29,37 @@ _SENTENCE = re.compile(r"[.!?\n]+")
 
 @dataclass(frozen=True)
 class _Category:
-    """A kind of trouble, and the phrases that name it in either language."""
+    """A kind of trouble, and the phrases that name it in either language.
+
+    Two lists, because two things are being recognised. `reports` are wordings
+    that can only be somebody saying this happened to them, and a question
+    wrapped around one does not make it stop having happened. `topics` name
+    the subject, which a customer may equally be asking about, so those are
+    the ones an advisory sentence sets aside.
+
+    Growing the past-tense markers was the alternative, and it does not work:
+    "how do you protect accounts when someone got into my account" carries a
+    report that no list of verbs was ever going to finish covering.
+    """
 
     reason: RiskReason
+    reports: tuple[str, ...]
     topics: tuple[str, ...]
 
 
 _CATEGORIES = (
     _Category(
         RiskReason.PAYMENT_DISPUTE,
+        (
+            "i was charged twice",
+            "i've been charged twice",
+            "i have been charged twice",
+            "charged me twice",
+            "billed me twice",
+            "j'ai ete debite deux fois",
+            "on m'a debite deux fois",
+            "vous m'avez debite",
+        ),
         (
             "charged twice",
             "charged me twice",
@@ -52,6 +74,33 @@ _CATEGORIES = (
     ),
     _Category(
         RiskReason.SUSPECTED_FRAUD,
+        (
+            "i did not order",
+            "i didn't order",
+            "i didnt order",
+            "i never ordered",
+            "someone used my card",
+            "someone used my account",
+            "someone else used my",
+            "somebody else used my",
+            "stranger used my",
+            "stranger made purchases",
+            "purchases i did not make",
+            "purchases i didn't make",
+            "charges i did not make",
+            "charges i didn't make",
+            "bought things i never",
+            "ordered things i never",
+            "my card was stolen",
+            "my card has been stolen",
+            "stole my card",
+            "n'ai pas commande",
+            "quelqu'un a utilise ma carte",
+            "quelqu'un a utilise mon compte",
+            "achats que je n'ai pas",
+            "ma carte a ete volee",
+            "on a vole ma carte",
+        ),
         (
             "fraud",
             "fraudulent",
@@ -97,6 +146,23 @@ _CATEGORIES = (
     _Category(
         RiskReason.ACCOUNT_COMPROMISE,
         (
+            "got into my account",
+            "broke into my account",
+            "logged into my account",
+            "logged in to my account",
+            "accessed my account",
+            "someone is using my account",
+            "someone else is in my account",
+            "someone changed my password",
+            "somebody changed my password",
+            "my password was changed",
+            "my account was hacked",
+            "my account has been hacked",
+            "quelqu'un a accede a mon compte",
+            "mon compte a ete pirate",
+            "compte a ete pirate",
+        ),
+        (
             "hacked",
             "compromised",
             "broke into my account",
@@ -124,6 +190,16 @@ _CATEGORIES = (
     ),
     _Category(
         RiskReason.LEGAL_THREAT,
+        (
+            "my lawyer",
+            "my solicitor",
+            "take you to court",
+            "sue you",
+            "will be taking legal action",
+            "taking legal action",
+            "mon avocat",
+            "je vais porter plainte",
+        ),
         (
             "my lawyer",
             "my solicitor",
@@ -260,9 +336,10 @@ def risks_in(message: str) -> frozenset[RiskReason]:
     folded = fold(message)
     found = set()
     for sentence in _SENTENCE.split(folded):
-        if _is_advisory(sentence):
-            continue
+        advisory = _is_advisory(sentence)
         for category in _CATEGORIES:
-            if any(topic in sentence for topic in category.topics):
+            reported = any(report in sentence for report in category.reports)
+            mentioned = any(topic in sentence for topic in category.topics)
+            if reported or (mentioned and not advisory):
                 found.add(category.reason)
     return frozenset(found)

@@ -159,37 +159,111 @@ def test_asking_about_your_own_account_is_not_reporting_it(message: str) -> None
     assert risks_in(message) == frozenset()
 
 
-# Each pair is the same subject asked about and reported, so a rule that fires
-# on the topic rather than on the event fails one half of it. The model tried
-# for this job scored the left column higher than the right, which is why the
-# pairs are written down rather than the reports alone.
+# Every category, in both languages, as the same subject asked about and
+# reported. Either column alone passes for the wrong reason — a rule that never
+# fires clears all the questions, one that always fires clears all the reports —
+# and the expected category is named, so a report answered with the wrong kind
+# of trouble does not count as caught.
 BOUNDARIES = [
-    ("How can I keep my account safe from fraud?", "Someone got into my account"),
-    ("How do you protect accounts?", "Someone logged into my account last night"),
     (
-        "How can I avoid unauthorised charges?",
-        "There are unauthorised charges on my card",
+        "en",
+        RiskReason.PAYMENT_DISPUTE,
+        "What is your policy on double billing?",
+        "I was charged twice",
     ),
-    ("How to protect my card from being stolen?", "My card was stolen"),
-    ("What is your policy on double billing?", "I was charged twice"),
-    ("Comment garder mon compte en securite ?", "Quelqu'un a accede a mon compte"),
-    ("Comment eviter que ma carte soit volee ?", "Ma carte a ete volee"),
-    ("Comment prevenir la fraude ?", "Je n'ai pas commande cet article"),
+    (
+        "fr",
+        RiskReason.PAYMENT_DISPUTE,
+        "Quelle est votre politique en cas de double facturation ?",
+        "J'ai ete debite deux fois",
+    ),
+    (
+        "en",
+        RiskReason.SUSPECTED_FRAUD,
+        "How can I avoid unauthorised charges?",
+        "Someone used my card",
+    ),
+    (
+        "fr",
+        RiskReason.SUSPECTED_FRAUD,
+        "Comment prevenir la fraude ?",
+        "Je n'ai pas commande cet article",
+    ),
+    (
+        "en",
+        RiskReason.ACCOUNT_COMPROMISE,
+        "How do you protect accounts?",
+        "Someone logged into my account last night",
+    ),
+    (
+        "fr",
+        RiskReason.ACCOUNT_COMPROMISE,
+        "Comment garder mon compte en securite ?",
+        "Quelqu'un a accede a mon compte",
+    ),
+    (
+        "en",
+        RiskReason.LEGAL_THREAT,
+        "What is your policy on disputes?",
+        "My lawyer will be in touch",
+    ),
+    (
+        "fr",
+        RiskReason.LEGAL_THREAT,
+        "Quelle est votre politique en cas de litige ?",
+        "Mon avocat va vous contacter",
+    ),
 ]
 
 
-@pytest.mark.parametrize(("question", "report"), BOUNDARIES, ids=lambda v: v[:34])
+@pytest.mark.parametrize(
+    ("locale", "reason", "question", "report"),
+    BOUNDARIES,
+    ids=[f"{locale} {reason.value}" for locale, reason, _, _ in BOUNDARIES],
+)
 def test_asking_about_a_subject_and_reporting_it_go_different_ways(
-    question: str, report: str
+    locale: str, reason: RiskReason, question: str, report: str
 ) -> None:
-    """The distinction the whole detector exists to draw.
-
-    Written as pairs because either half alone passes for the wrong reason: a
-    rule that never fires satisfies the questions, and one that always fires
-    satisfies the reports.
-    """
+    """The distinction the whole detector exists to draw."""
     assert risks_in(question) == frozenset(), question
-    assert risks_in(report) != frozenset(), report
+    assert reason in risks_in(report), report
+
+
+@pytest.mark.parametrize(
+    ("reason", "message"),
+    [
+        (
+            RiskReason.ACCOUNT_COMPROMISE,
+            "How do you protect accounts when someone got into my account?",
+        ),
+        (
+            RiskReason.SUSPECTED_FRAUD,
+            "How can I prevent fraud if someone used my card?",
+        ),
+        (
+            RiskReason.ACCOUNT_COMPROMISE,
+            "Comment proteger les comptes quand quelqu'un a accede a mon compte ?",
+        ),
+        (
+            RiskReason.LEGAL_THREAT,
+            "What is your policy if my lawyer contacts you?",
+        ),
+    ],
+    ids=["account, one sentence", "fraud, one sentence", "account, french", "legal"],
+)
+def test_a_question_wrapped_round_a_report_is_still_a_report(
+    reason: RiskReason, message: str
+) -> None:
+    """Every one of these was being discarded whole.
+
+    An advisory opening set the sentence aside unless the customer also used
+    one of a short list of past-tense verbs, and "got", "used" and "a accede"
+    were not on it. Lengthening that list is not a fix — it is the same bet
+    made again. Wordings that can only be a report are now recognised whatever
+    is wrapped around them, and the subject words alone are what an advisory
+    sentence sets aside.
+    """
+    assert reason in risks_in(message)
 
 
 def test_a_report_is_still_read_when_it_arrives_inside_a_request() -> None:
