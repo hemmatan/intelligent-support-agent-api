@@ -14,10 +14,13 @@ A template answers one fact. A reply is however many of them the question
 asked for, in a fixed order, each filled from the entry that was cited for it.
 """
 
+import hashlib
+import json
 import re
 import tomllib
 from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
+from typing import get_args
 
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt, ValidationError
 
@@ -68,6 +71,11 @@ class ResponseTemplate(BaseModel):
     approved: bool
     sentence: str = Field(min_length=1)
 
+    # Approved words for each value a named choice can take. A figure prints
+    # as itself in any language; "standard_items" does not, and a slot with no
+    # wording for it puts an internal token in front of a customer.
+    words: Mapping[str, str] = Field(default_factory=dict)
+
     def model_post_init(self, _: object) -> None:
         if re.search(r"\d", self.sentence):
             raise ValueError("sentence contains a literal digit; name a claim instead")
@@ -94,12 +102,38 @@ class ResponseTemplate(BaseModel):
                 f"{self.fact} is stated by {sorted(set().union(*stating))}, and "
                 f"the sentence names only {sorted(named)}"
             )
+        choices = {
+            value
+            for claims in _STATED_BY.get(self.fact, [])
+            for field in named & claims.model_fields.keys()
+            for value in get_args(claims.model_fields[field].annotation)
+            if isinstance(value, str)
+        }
+        unsaid = choices - self.words.keys()
+        if unsaid:
+            raise ValueError(f"no approved words for {sorted(unsaid)}")
+        spare = self.words.keys() - choices
+        if spare:
+            raise ValueError(f"{sorted(spare)} is not a value any claim can take")
 
     @property
     def reference(self) -> str:
         return f"say:{self.fact}.{self.locale}.v{self.version}"
 
-    def fill(self, slots: Mapping[str, str]) -> str:
+    @property
+    def content_hash(self) -> str:
+        """Digest of the sentence and every word that can go into it.
+
+        The reference names a version. It cannot say whether the wording under
+        that version is the wording that went out, and re-editing approved text
+        in place is exactly the change nobody announces.
+        """
+        canonical = json.dumps(
+            self.model_dump(mode="json"), sort_keys=True, separators=(",", ":")
+        )
+        return f"sha256:{hashlib.sha256(canonical.encode()).hexdigest()}"
+
+    def fill(self, values: Mapping[str, object]) -> str:
         """Put the claim values in, and refuse if one is not there.
 
         Coverage has already established that the cited entry states this
@@ -107,13 +141,18 @@ class ResponseTemplate(BaseModel):
         it is louder than a sentence delivered with a hole in it.
         """
         named = set(_PLACEHOLDER.findall(self.sentence))
-        missing = named - slots.keys()
+        missing = named - values.keys()
         if missing:
             raise NothingApprovedToSayError(
                 f"{self.reference} needs {sorted(missing)}, which the evidence "
                 f"does not state"
             )
-        return _PLACEHOLDER.sub(lambda m: slots[m.group(1)], self.sentence)
+
+        def spoken(name: str) -> str:
+            value = values[name]
+            return self.words[value] if isinstance(value, str) else str(value)
+
+        return _PLACEHOLDER.sub(lambda m: spoken(m.group(1)), self.sentence)
 
 
 class TemplateLibrary:
@@ -145,7 +184,7 @@ class TemplateLibrary:
         Ordered by the fact vocabulary rather than by whatever the question
         mentioned first, so the same two facts always read the same way round.
         """
-        slots = entry.claims.slots(locale)
+        values = entry.claims.values()
         sentences, used = [], []
         for fact in Fact:
             if fact not in facts:
@@ -155,8 +194,8 @@ class TemplateLibrary:
                 raise NothingApprovedToSayError(
                     f"nothing approved says {fact} in {locale}"
                 )
-            sentences.append(template.fill(slots))
-            used.append(template.reference)
+            sentences.append(template.fill(values))
+            used.append(f"{template.reference}@{template.content_hash}")
         if not sentences:
             raise NothingApprovedToSayError("an answer that says nothing is not one")
         return " ".join(sentences), tuple(used)

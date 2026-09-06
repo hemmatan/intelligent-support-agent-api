@@ -3,3 +3,8 @@ locale = "fr"
 version = 1
 approved = true
 sentence = "{eligibility} peuvent être retournés s'ils sont non portés et dans leur emballage d'origine."
+
+[words]
+standard_items = "La plupart des articles"
+all_items = "Tous les articles"
+selected_items = "Certains articles"

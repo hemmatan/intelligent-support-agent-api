@@ -284,7 +284,10 @@ async def test_an_answer_is_assembled_from_approved_wording(
     )
     assert isinstance(outcome, Plan)
     assert outcome.reply == "Returns are accepted within 30 days of delivery."
-    assert outcome.said == ("say:return_window.en.v1",)
+    assert len(outcome.said) == 1
+    reference, _, digest = outcome.said[0].partition("@")
+    assert reference == "say:return_window.en.v1"
+    assert digest.startswith("sha256:")
 
 
 @pytest.mark.asyncio

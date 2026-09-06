@@ -6,12 +6,7 @@ from pathlib import Path
 import pytest
 
 from app.agent.facts import Fact
-from app.agent.knowledge import (
-    PolicyEntry,
-    ReturnPolicyClaims,
-    ShippingPolicyClaims,
-    load_corpus,
-)
+from app.agent.knowledge import PolicyEntry, load_corpus
 from app.agent.responses import (
     NothingApprovedToSayError,
     ResponseTemplate,
@@ -126,7 +121,10 @@ def test_the_reply_reads_the_same_way_round_every_time() -> None:
         "Returns are accepted within 30 days of delivery. Most items can be "
         "returned if unworn and in the original packaging."
     )
-    assert used == ("say:return_window.en.v1", "say:return_eligibility.en.v1")
+    assert [reference.split("@")[0] for reference in used] == [
+        "say:return_window.en.v1",
+        "say:return_eligibility.en.v1",
+    ]
 
 
 def test_a_named_choice_reaches_a_customer_as_words() -> None:
@@ -159,17 +157,7 @@ def test_no_shipped_sentence_states_a_figure_of_its_own() -> None:
         assert not re.search(r"\d", path.read_text().split("sentence = ")[1])
 
 
-def test_every_value_a_claim_can_take_has_approved_words() -> None:
-    """A value with no wording renders an internal token to a customer.
-
-    Adding a choice to a claim is exactly when this is forgotten, and the
-    place it shows up is the reply.
-    """
-    for claims in (ReturnPolicyClaims, ShippingPolicyClaims):
-        for name, field in claims.model_fields.items():
-            choices = getattr(field.annotation, "__args__", ())
-            for choice in choices:
-                if not isinstance(choice, str):
-                    continue
-                assert choice in claims.WORDS, f"{claims.__name__}.{name}: {choice}"
-                assert set(claims.WORDS[choice]) == {"en", "fr"}
+def test_no_claim_leaves_the_corpus_already_turned_into_prose() -> None:
+    """Values come out as authored. Turning them into words is the phrase book."""
+    for policy in load_corpus():
+        assert policy.claims.values() == policy.claims.model_dump()

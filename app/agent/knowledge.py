@@ -62,31 +62,20 @@ class PolicyClaims(BaseModel):
 
     STATES: ClassVar[Mapping[str, Fact]] = {}
 
-    # Approved wording for every value a named-choice field can take. A figure
-    # renders as itself in any language; "standard_items" does not, and the
-    # alternative is a slot that quietly puts an internal token in front of a
-    # customer.
-    WORDS: ClassVar[Mapping[str, Mapping[str, str]]] = {}
-
     @property
     def facts(self) -> frozenset[Fact]:
         """What this entry is able to settle."""
         return frozenset(self.STATES.values())
 
-    def slots(self, locale: str) -> dict[str, str]:
-        """Every claim as text a response template may place in a sentence.
+    def values(self) -> dict[str, object]:
+        """Every claim as it was authored, with nothing turned into prose yet.
 
-        Values are turned into words here rather than in the template, so one
-        approved wording serves every sentence that mentions a claim, and a
-        second template cannot describe the same value differently.
+        A named choice leaves here as the token it is stored as. Which words
+        stand for it is customer-facing text, so it lives in the approved
+        wording with the rest of the customer-facing text, where it is
+        versioned and hashed alongside the sentence that uses it.
         """
-        rendered: dict[str, str] = {}
-        for name, value in self.model_dump().items():
-            if isinstance(value, str):
-                rendered[name] = self.WORDS[value][locale]
-            else:
-                rendered[name] = str(value)
-        return rendered
+        return dict(self.model_dump())
 
 
 class ReturnPolicyClaims(PolicyClaims):
@@ -98,12 +87,6 @@ class ReturnPolicyClaims(PolicyClaims):
     STATES: ClassVar[Mapping[str, Fact]] = {
         "return_window_days": Fact.RETURN_WINDOW,
         "eligibility": Fact.RETURN_ELIGIBILITY,
-    }
-
-    WORDS: ClassVar[Mapping[str, Mapping[str, str]]] = {
-        "standard_items": {"en": "Most items", "fr": "La plupart des articles"},
-        "all_items": {"en": "All items", "fr": "Tous les articles"},
-        "selected_items": {"en": "Selected items", "fr": "Certains articles"},
     }
 
 

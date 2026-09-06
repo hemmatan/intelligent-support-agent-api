@@ -3,3 +3,8 @@ locale = "en"
 version = 1
 approved = true
 sentence = "{eligibility} can be returned if unworn and in the original packaging."
+
+[words]
+standard_items = "Most items"
+all_items = "All items"
+selected_items = "Selected items"
