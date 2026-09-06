@@ -64,11 +64,46 @@ def _embedder() -> Embedder | None:
     return HuggingFaceEmbedder(settings)
 
 
+# Rendered at the top of the interactive docs. Markdown, because the four
+# outcomes are the first thing anybody reading this API needs to understand
+# and a one-line summary cannot carry them.
+DESCRIPTION = f"""
+{settings.PROJECT_DESCRIPTION}.
+
+Ask a question at `POST {settings.API_V1_PREFIX}/support/messages` and one of
+four things comes back, all of them `200`:
+
+| Route | What happened |
+|---|---|
+| `direct_response` | Answered from approved wording, with the evidence it rests on |
+| `clarification` | Something is missing that you can supply, and you are asked for it |
+| `human_escalation` | A person is taking it, and a case is open for them |
+| `internal_review` | Nothing is wrong with the request; somebody here finishes it |
+
+Every reply carries a `case` — the record the decision was written into before
+the reply was sent — and a `reliability` rating naming each dimension on an
+ordinal scale rather than as a percentage.
+
+No sentence a customer receives is written by a model. Figures come from
+structured claims and the sentences around them are approved, versioned and
+content-hashed.
+"""
+
+TAGS = [
+    {
+        "name": "support",
+        "description": "Ask the agent a question and receive one of four decisions.",
+    },
+    {"name": "authentication", "description": "Accounts, tokens and API keys."},
+    {"name": "system", "description": "Liveness."},
+]
+
 app = FastAPI(
     lifespan=lifespan,
     debug=settings.DEBUG,
     title=settings.PROJECT_NAME,
-    description=settings.PROJECT_DESCRIPTION,
+    description=DESCRIPTION,
+    openapi_tags=TAGS,
     version=settings.VERSION,
     openapi_url=f"{settings.API_V1_PREFIX}/openapi.json",
     docs_url=f"{settings.API_V1_PREFIX}/docs",

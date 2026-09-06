@@ -18,6 +18,8 @@ The agent's design and the reasoning behind it are in
 - **Docker Development Workflow**: Containerized local setup; see the Docker section for current limitations
 - **Developer-friendly**: Auto-reload, debugging, and development tools
 - **Validated Configuration**: Namespaced settings with production secret and CORS safeguards
+- **Grounded Answers**: Every customer-facing sentence is approved, versioned and content-hashed; figures come from structured claims, never from prose
+- **Four Honest Outcomes**: Answer, clarify, escalate or hold for review, each with a reason code, a rendered message and a recorded case
 
 ## Project Structure
 
@@ -136,6 +138,92 @@ Once the application is running, you can access:
 - `GET /api/v1/auth/me` - Get the current user using an access token
 - `POST /api/v1/auth/api-tokens` - Create an API token that is stored only as a hash
 - `GET /api/v1/auth/api-me` - Get the current user using an API token
+
+### Support
+
+- `POST /api/v1/support/messages` - Ask the agent a question
+
+Send a question as a signed-in customer. The language of the reply comes from
+the account, not the request.
+
+```jsonc
+POST /api/v1/support/messages
+Authorization: Bearer <access token>
+
+{
+  "message": "How long do I have to return a jacket?",
+  "order_id": "ORD-4471",          // optional
+  "product_reference": "SKU-9"     // optional
+}
+```
+
+Four things can come back, and **all of them are `200`**. Being asked a
+question, being passed to a person and being held for checking are decisions
+about a request that was understood; the `route` says which. Status codes are
+kept for a malformed body (`422`) and an unknown caller (`401`).
+
+Every reply carries a `case`, which is the record the decision was written
+into before the reply was sent.
+
+**`direct_response`** — answered from approved wording, with the evidence it
+rests on:
+
+```json
+{
+  "route": "direct_response",
+  "case": "9c8e2f1a-...",
+  "intent": "return_policy",
+  "reply": "Returns are accepted within 30 days of delivery.",
+  "citations": [
+    {
+      "source": "knowledge_base",
+      "reference": "kb:returns.standard.en.v1",
+      "content_hash": "sha256:..."
+    }
+  ],
+  "wording": ["say:return_window.en.v1@sha256:..."],
+  "reliability": {
+    "level": "acceptable",
+    "ordinal": 2,
+    "scale": 3,
+    "factors": {"authority": "ready", "coverage": "ready", "relevance": "acceptable"}
+  }
+}
+```
+
+**`clarification`** — something is missing that the customer can supply:
+
+```json
+{
+  "route": "clarification",
+  "case": "9c8e2f1a-...",
+  "reason": "missing_order_id",
+  "message": "Please send us your order number and we will look it up.",
+  "wording": "say:ask_for_order_number.en.v1@sha256:..."
+}
+```
+
+**`human_escalation`** — a person takes it, and a case is waiting for them:
+
+```json
+{
+  "route": "human_escalation",
+  "case": "9c8e2f1a-...",
+  "reasons": ["payment_dispute"],
+  "message": "We have passed this to a member of our team to handle personally.",
+  "wording": "say:handed_to_a_specialist.en.v1@sha256:...",
+  "reliability": null
+}
+```
+
+**`internal_review`** — nothing is wrong with the request; something is wrong
+with us, and somebody here finishes it. Same shape as an escalation, with
+`route: "internal_review"`.
+
+`reason` and `message` are not alternatives. The code is stable and
+machine-readable — branch on it, count it, assert against it — while the
+message is written for a person and translated. Reading the message to work
+out what happened means reading the wrong field.
 
 ### System
 
