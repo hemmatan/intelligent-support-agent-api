@@ -15,7 +15,7 @@ import uuid
 from collections.abc import Sequence
 from typing import Protocol
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.enquiry import Enquiry
@@ -97,6 +97,14 @@ class CaseNotFoundError(LookupError):
     """No case with that reference, or none this person may act on."""
 
 
+class CaseAlreadyTakenError(RuntimeError):
+    """Somebody else has it.
+
+    Two people working the same case is the thing claiming exists to stop, and
+    a claim that overwrites the previous one stops nothing.
+    """
+
+
 class CaseAlreadyClosedError(RuntimeError):
     """Somebody has already dealt with it.
 
@@ -111,6 +119,11 @@ class CaseDesk:
 
     Only cases that stopped short of an answer appear. A request that was
     answered is a record; a request that was not is somebody's work.
+
+    Claiming and closing are single statements with their conditions in the
+    WHERE clause, so the database settles who got there first. Reading a row,
+    deciding in Python and writing it back leaves a window between the decision
+    and the write, and two people pressing at once both come through it.
     """
 
     def __init__(self, db: AsyncSession) -> None:
@@ -129,7 +142,12 @@ class CaseDesk:
         )
         return found.scalars().all()
 
-    async def _open(self, reference: str) -> SupportCase:
+    async def _workable(self, reference: str) -> SupportCase:
+        """The case, or the reason it could not be acted on.
+
+        Consulted only after a conditional write has already failed, to say
+        which of the reasons it was. It never decides anything.
+        """
         found = await self._db.execute(
             select(SupportCase).where(SupportCase.reference == reference)
         )
@@ -142,25 +160,62 @@ class CaseDesk:
             raise CaseAlreadyClosedError(reference)
         return case
 
+    async def _reload(self, reference: str) -> SupportCase:
+        found = await self._db.execute(
+            select(SupportCase).where(SupportCase.reference == reference)
+        )
+        return found.scalar_one()
+
     async def claim(self, reference: str, agent: int) -> SupportCase:
-        """Put a name against it, so two people do not both start."""
-        case = await self._open(reference)
-        case.assigned_to = agent
+        """Take a case, if nobody else already has.
+
+        One statement: it takes effect only while the case is unclaimed, open,
+        and somebody's to work. A second person arriving changes no rows and is
+        told so rather than quietly replacing the first.
+        """
+        taken = await self._db.execute(
+            update(SupportCase)
+            .where(
+                SupportCase.reference == reference,
+                SupportCase.route.in_([str(route) for route in NEEDS_SOMEBODY]),
+                SupportCase.closed_at.is_(None),
+                SupportCase.assigned_to.is_(None),
+            )
+            .values(assigned_to=agent)
+        )
+        if taken.rowcount == 0:
+            await self._db.rollback()
+            case = await self._workable(reference)
+            raise CaseAlreadyTakenError(f"{reference} is with {case.assigned_to}")
         await self._db.commit()
-        await self._db.refresh(case)
-        return case
+        return await self._reload(reference)
 
     async def resolve(self, reference: str, agent: int, note: str) -> SupportCase:
-        """Close it, recording who and what.
+        """Close it, recording who finished it and what they did.
 
-        Claiming first is not required. Somebody who deals with a case
-        immediately should not have to perform a two-step to say so, and the
-        record ends up naming them either way.
+        Claiming first is not required: somebody who deals with a case on
+        sight should not perform a two-step to say so. Whoever writes the note
+        is recorded as having done the work, which is not necessarily whoever
+        took it on — a case picked up by one person and finished by another
+        would otherwise credit the wrong one.
         """
-        case = await self._open(reference)
-        case.assigned_to = case.assigned_to or agent
-        case.resolution = note
-        case.closed_at = utc_now()
+        closed = await self._db.execute(
+            update(SupportCase)
+            .where(
+                SupportCase.reference == reference,
+                SupportCase.route.in_([str(route) for route in NEEDS_SOMEBODY]),
+                SupportCase.closed_at.is_(None),
+            )
+            .values(
+                assigned_to=func.coalesce(SupportCase.assigned_to, agent),
+                resolved_by=agent,
+                resolution=note,
+                closed_at=utc_now(),
+            )
+        )
+        if closed.rowcount == 0:
+            await self._db.rollback()
+            await self._workable(reference)
+            raise CaseAlreadyClosedError(reference)
         await self._db.commit()
-        await self._db.refresh(case)
-        return case
+        return await self._reload(reference)

@@ -9,7 +9,12 @@ from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import DBSessionDep, StaffUserDep
 from app.schemas.cases import Case, Resolution
-from app.services.cases import CaseAlreadyClosedError, CaseDesk, CaseNotFoundError
+from app.services.cases import (
+    CaseAlreadyClosedError,
+    CaseAlreadyTakenError,
+    CaseDesk,
+    CaseNotFoundError,
+)
 
 router = APIRouter()
 
@@ -33,11 +38,20 @@ async def waiting_cases(staff: StaffUserDep, db: DBSessionDep) -> list[Case]:
 
 @router.post("/{reference}/claim", response_model=Case)
 async def claim_case(reference: str, staff: StaffUserDep, db: DBSessionDep) -> Case:
-    """Put your name against a case so two people do not both start on it."""
+    """Take a case, if nobody else already has.
+
+    A second person is refused rather than quietly replacing the first, which
+    is the only version of this that stops two people doing the same work.
+    """
     try:
         return Case.model_validate(await CaseDesk(db).claim(reference, staff.id))
     except CaseNotFoundError as exc:
         raise _missing(reference) from exc
+    except CaseAlreadyTakenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Case {reference} is already with somebody",
+        ) from exc
     except CaseAlreadyClosedError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

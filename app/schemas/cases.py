@@ -47,6 +47,7 @@ class Case(BaseModel):
 
     # Where it stands.
     assigned_to: int | None
+    resolved_by: int | None
     closed_at: datetime | None
     resolution: str | None
 

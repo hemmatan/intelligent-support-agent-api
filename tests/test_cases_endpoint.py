@@ -1,5 +1,6 @@
 """The other half of escalating: a person who can actually take it."""
 
+import asyncio
 from collections.abc import AsyncGenerator, Callable
 from itertools import count
 
@@ -213,3 +214,119 @@ async def test_a_resolution_has_to_say_something(
         f"{CASES}/{reference}/resolve", json={"note": "   "}, headers=staff
     )
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_a_case_already_taken_is_not_handed_to_somebody_else(
+    async_client: AsyncClient, wired: None, person: Callable[..., object]
+) -> None:
+    """Claiming replaced whoever held it and returned success to both.
+
+    Two people would each have been told the case was theirs, which is the
+    single thing claiming exists to prevent.
+    """
+    customer = await person()  # type: ignore[misc]
+    reference = (
+        await async_client.post(
+            MESSAGES, json={"message": "I was charged twice"}, headers=customer
+        )
+    ).json()["case"]
+    alice = await person(UserRole.SUPPORT_AGENT)  # type: ignore[misc]
+    bob = await person(UserRole.SUPPORT_AGENT)  # type: ignore[misc]
+
+    first = await async_client.post(f"{CASES}/{reference}/claim", headers=alice)
+    assert first.status_code == 200
+    hers = first.json()["assigned_to"]
+
+    second = await async_client.post(f"{CASES}/{reference}/claim", headers=bob)
+    assert second.status_code == 409
+    still = await async_client.get(CASES, headers=bob)
+    assert still.json()[0]["assigned_to"] == hers
+
+
+@pytest.mark.asyncio
+async def test_two_people_claiming_at_once_produce_one_winner(
+    async_client: AsyncClient, wired: None, person: Callable[..., object]
+) -> None:
+    """The condition is in the statement, so the database settles it.
+
+    Read the row, decide in Python, write it back, and there is a window
+    between the decision and the write that both requests pass through.
+    """
+    customer = await person()  # type: ignore[misc]
+    reference = (
+        await async_client.post(
+            MESSAGES, json={"message": "Someone got into my account"}, headers=customer
+        )
+    ).json()["case"]
+    racers = [await person(UserRole.SUPPORT_AGENT) for _ in range(4)]  # type: ignore[misc]
+
+    results = await asyncio.gather(
+        *(
+            async_client.post(f"{CASES}/{reference}/claim", headers=headers)
+            for headers in racers
+        )
+    )
+    codes = sorted(response.status_code for response in results)
+    assert codes == [200, 409, 409, 409], codes
+
+
+@pytest.mark.asyncio
+async def test_whoever_finished_it_is_who_the_record_names(
+    async_client: AsyncClient, wired: None, person: Callable[..., object]
+) -> None:
+    """A case taken by one person and closed by another credited the first.
+
+    Somebody covering a colleague's shift did the work and the record said
+    their colleague had.
+    """
+    customer = await person()  # type: ignore[misc]
+    reference = (
+        await async_client.post(
+            MESSAGES, json={"message": "My lawyer will be in touch"}, headers=customer
+        )
+    ).json()["case"]
+    alice = await person(UserRole.SUPPORT_AGENT)  # type: ignore[misc]
+    bob = await person(UserRole.SUPPORT_AGENT)  # type: ignore[misc]
+
+    claimed = (
+        await async_client.post(f"{CASES}/{reference}/claim", headers=alice)
+    ).json()
+    resolved = (
+        await async_client.post(
+            f"{CASES}/{reference}/resolve",
+            json={"note": "Bob picked this up and passed it to legal."},
+            headers=bob,
+        )
+    ).json()
+
+    assert resolved["assigned_to"] == claimed["assigned_to"]
+    assert resolved["resolved_by"] != resolved["assigned_to"]
+
+
+@pytest.mark.asyncio
+async def test_two_people_resolving_at_once_produce_one_account(
+    async_client: AsyncClient, wired: None, person: Callable[..., object]
+) -> None:
+    """The second note would replace the first, and both callers hear success."""
+    customer = await person()  # type: ignore[misc]
+    reference = (
+        await async_client.post(
+            MESSAGES, json={"message": "I was charged twice"}, headers=customer
+        )
+    ).json()["case"]
+    racers = [await person(UserRole.SUPPORT_AGENT) for _ in range(3)]  # type: ignore[misc]
+
+    results = await asyncio.gather(
+        *(
+            async_client.post(
+                f"{CASES}/{reference}/resolve",
+                json={"note": f"Handled by number {n}."},
+                headers=headers,
+            )
+            for n, headers in enumerate(racers)
+        )
+    )
+    assert sorted(r.status_code for r in results) == [200, 409, 409]
+    won = next(r for r in results if r.status_code == 200).json()
+    assert won["resolution"].startswith("Handled by number")

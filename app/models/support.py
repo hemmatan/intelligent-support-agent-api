@@ -75,9 +75,16 @@ class SupportCase(Base):
     closed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Who finished it, which is not always who took it on. Somebody covering
+    # a colleague's shift should be recorded as having done the work, not as
+    # having done it under that colleague's name.
+    resolved_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     resolution: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     user: Mapped[User] = relationship(foreign_keys=[user_id])
     agent: Mapped[User | None] = relationship(foreign_keys=[assigned_to])
+    finisher: Mapped[User | None] = relationship(foreign_keys=[resolved_by])
 
     __table_args__ = (Index("ix_support_cases_open", "route", "closed_at"),)
