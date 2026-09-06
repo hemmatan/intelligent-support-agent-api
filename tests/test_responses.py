@@ -1,12 +1,21 @@
 """The only sentences a customer is sent, and what stops anything else."""
 
 import re
+from datetime import date
+from decimal import Decimal
 from pathlib import Path
+from typing import Literal
 
 import pytest
 
 from app.agent.facts import Fact
-from app.agent.knowledge import PolicyEntry, load_corpus
+from app.agent.knowledge import (
+    ItemCategory,
+    PolicyEntry,
+    ReturnPolicyClaims,
+    ShippingPolicyClaims,
+    load_corpus,
+)
 from app.agent.responses import (
     ApprovedReply,
     NothingApprovedToSayError,
@@ -14,6 +23,8 @@ from app.agent.responses import (
     ResponseTemplateError,
     TemplateLibrary,
     UnattributedReplyError,
+    _how_to_say,
+    _Rendering,
     load_templates,
 )
 
@@ -288,3 +299,65 @@ def test_wording_must_cover_every_member_of_a_named_set() -> None:
                 "words": {"underwear": "underwear", "swimwear": "swimwear"},
             }
         )
+
+
+def test_a_figure_is_printed_and_not_looked_up() -> None:
+    """Thirty reads as thirty wherever it lands, so nobody approves it."""
+    assert _how_to_say("return_window_days", int) == (
+        _Rendering.AS_ITSELF,
+        frozenset(),
+    )
+
+
+def test_a_choice_asks_for_words_for_every_option_it_has() -> None:
+    """Not merely the one an entry happens to be holding.
+
+    Wording is signed off once and used against whatever the claim later
+    turns out to say, so an option nobody wrote for is a hole that opens on
+    the day the policy is edited rather than the day it was approved.
+    """
+    how, keys = _how_to_say("eligibility", Literal["standard_items", "all_items"])
+    assert how is _Rendering.FROM_WORDS
+    assert keys == {"standard_items", "all_items"}
+
+
+def test_a_yes_or_no_keys_its_words_by_the_field() -> None:
+    """Two in one sentence would otherwise be reaching for the same key."""
+    how, keys = _how_to_say("proof_of_purchase_required", bool)
+    assert how is _Rendering.FROM_WORDS
+    assert keys == {
+        "proof_of_purchase_required_true",
+        "proof_of_purchase_required_false",
+    }
+
+
+def test_a_set_asks_for_words_for_every_member_it_draws_from() -> None:
+    how, keys = _how_to_say("excluded_categories", tuple[ItemCategory, ...])
+    assert how is _Rendering.FROM_WORDS
+    assert keys == {member.value for member in ItemCategory}
+
+
+@pytest.mark.parametrize("declared", [str, date, Decimal, float, Literal[1, 2]])
+def test_a_value_nothing_knows_how_to_say_is_refused(declared: object) -> None:
+    """These two answers used to be the same answer.
+
+    Asked what a figure needed spelling out, it said nothing; asked the same
+    about free text it said nothing again, and the checks reading that reply
+    are set comparisons which are satisfied by an empty one. A reference
+    copied off a parcel, or a date, would have loaded without complaint and
+    come apart later with somebody waiting on the reply.
+    """
+    with pytest.raises(ValueError, match="no rule here"):
+        _how_to_say("whatever", declared)
+
+
+def test_every_claim_a_policy_can_state_can_be_put_into_words() -> None:
+    """What catches a field arriving that none of this can speak.
+
+    A template is only measured against the claims it names, so a field no
+    sentence has been written for yet would sit unexamined until one was.
+    """
+    for claims in (ReturnPolicyClaims, ShippingPolicyClaims):
+        for field, declared in claims.model_fields.items():
+            how, _ = _how_to_say(field, declared.annotation)
+            assert isinstance(how, _Rendering)

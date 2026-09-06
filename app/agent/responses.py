@@ -22,7 +22,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import get_args
+from typing import Annotated, Literal, get_args, get_origin
 
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt, ValidationError
 
@@ -66,27 +66,61 @@ class NothingApprovedToSayError(RuntimeError):
 _JOINS: dict[str, str] = {"en": "and", "fr": "et"}
 
 
-def _sayable(field: str, annotation: object) -> set[str]:
-    """Every value this field can hold that has to be turned into words.
+class _Rendering(StrEnum):
+    """The two ways a stored claim becomes something somebody can read."""
 
-    A figure needs none. A named choice needs one for each option, a yes-or-no
-    for both answers, and a list for every member of the set it draws from —
-    because a template is approved once and has to be able to say whatever the
-    claim turns out to hold.
+    AS_ITSELF = "as_itself"
+    """A figure. Thirty is thirty in either language, so nobody approves it."""
+
+    FROM_WORDS = "from_words"
+    """A token, a choice or a yes-or-no, which somebody has to write out."""
+
+
+# Containers whose members are the thing being said. The container itself
+# carries no meaning a reader receives; the joining is the locale's business.
+_COLLECTIONS = (tuple, list, set, frozenset)
+
+
+def _how_to_say(field: str, annotation: object) -> tuple[_Rendering, frozenset[str]]:
+    """Which of the two this field is, and every key it will need.
+
+    A choice needs a key per option and a yes-or-no needs one per answer,
+    because a template is approved once and has to cope with whatever the
+    claim later turns out to hold. Keys for the latter carry the field, so two
+    of them in one sentence cannot land on each other.
+
+    Refusing is the point of returning a verdict at all. Asked only which keys
+    were wanted, this said "none" for a figure and "none" for free text, and
+    the checks below are set comparisons that both pass on nothing. A claim
+    nobody could put into words therefore loaded quietly and failed later,
+    where it is a lookup blowing up mid-reply instead of a file being turned
+    away. Whether something can be said at all is now answered here, once, and
+    a type nothing recognises stops the deployment.
     """
     if annotation is bool:
-        # Keyed by the field, as the searchable text keys them, so a template
-        # naming two yes-or-no claims cannot have them collide.
-        return {f"{field}_true", f"{field}_false"}
+        return _Rendering.FROM_WORDS, frozenset({f"{field}_true", f"{field}_false"})
     if isinstance(annotation, type) and issubclass(annotation, StrEnum):
-        return {member.value for member in annotation}
-    return {
-        value
-        for argument in get_args(annotation)
-        for value in (
-            [argument] if isinstance(argument, str) else _sayable(field, argument)
-        )
-    }
+        return _Rendering.FROM_WORDS, frozenset(member.value for member in annotation)
+    # After bool, which is one of these as far as Python is concerned.
+    if annotation is int:
+        return _Rendering.AS_ITSELF, frozenset()
+
+    origin = get_origin(annotation)
+    if origin is Literal:
+        spelled = get_args(annotation)
+        if all(isinstance(option, str) for option in spelled):
+            return _Rendering.FROM_WORDS, frozenset(spelled)
+    elif origin is Annotated:
+        return _how_to_say(field, get_args(annotation)[0])
+    elif origin in _COLLECTIONS:
+        held = [held for held in get_args(annotation) if held is not Ellipsis]
+        if len(held) == 1:
+            return _how_to_say(field, held[0])
+
+    raise ValueError(
+        f"{field} is declared {annotation}, and there is no rule here for "
+        f"turning that into language somebody could be sent"
+    )
 
 
 class UnattributedReplyError(ValueError):
@@ -156,12 +190,12 @@ class ResponseTemplate(BaseModel):
                 f"{self.fact} is stated by {sorted(set().union(*stating))}, and "
                 f"the sentence names only {sorted(named)}"
             )
-        choices = {
-            value
-            for claims in _STATED_BY.get(self.fact, [])
-            for field in named & claims.model_fields.keys()
-            for value in _sayable(field, claims.model_fields[field].annotation)
-        }
+        choices: set[str] = set()
+        for claims in _STATED_BY.get(self.fact, []):
+            for field in named & claims.model_fields.keys():
+                how, keys = _how_to_say(field, claims.model_fields[field].annotation)
+                if how is _Rendering.FROM_WORDS:
+                    choices |= keys
         unsaid = choices - self.words.keys()
         if unsaid:
             raise ValueError(f"no approved words for {sorted(unsaid)}")
