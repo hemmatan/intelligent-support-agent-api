@@ -17,10 +17,10 @@ from app.agent.facts import Fact
 from app.agent.intent import Intent
 from app.agent.knowledge import load_corpus
 from app.agent.profiles import Source, profile_for
-from app.agent.reasons import EscalationReason, ReviewReason
+from app.agent.reasons import EscalationReason, EvidenceReason, ReviewReason
 from app.agent.reliability import Assessment, Factor, ReliabilityLevel, Route
 from app.agent.retrieval import PolicyIndex
-from app.agent.triage import Proceed
+from app.agent.triage import Proceed, UnexplainedEscalationError
 
 
 @pytest.fixture
@@ -187,3 +187,62 @@ def test_a_reading_cannot_exist_apart_from_what_was_read() -> None:
         if parameter.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
     ]
     assert positional == ["proceed"]
+
+
+@pytest.mark.asyncio
+async def test_a_scored_outcome_says_which_rating_decided_it(
+    sources: Sources,
+) -> None:
+    """A gated result carried a reason; a rated one arrived bare.
+
+    Every request persists a route and a cause, so the queue entries hardest
+    to act on were the ones with the most judgement behind them.
+    """
+    outcome = await plan_for(
+        Proceed(
+            intent=Intent.SHIPPING_POLICY,
+            message="Quel est le delai de livraison ?",
+            locale="fr",
+        ),
+        sources=sources,
+    )
+    assert isinstance(outcome, Plan)
+    assert outcome.route is Route.HUMAN_ESCALATION
+    assert outcome.reasons == {EvidenceReason.NOT_COVERED}
+
+
+@pytest.mark.asyncio
+async def test_an_answer_that_went_out_blames_nothing(sources: Sources) -> None:
+    outcome = await plan_for(
+        Proceed(
+            intent=Intent.RETURN_POLICY,
+            message="How long do I have to return a jacket?",
+        ),
+        sources=sources,
+    )
+    assert isinstance(outcome, Plan)
+    assert outcome.route is Route.DIRECT_RESPONSE
+    assert outcome.reasons == frozenset()
+
+
+def test_every_rating_tied_at_the_bottom_is_named() -> None:
+    """Naming one of two equal faults sends a reader to fix half of it."""
+    plan = Plan(
+        intent=Intent.RETURN_POLICY,
+        requested=frozenset(),
+        assessment=Assessment(
+            required={
+                Factor.COVERAGE: ReliabilityLevel.UNUSABLE,
+                Factor.RELEVANCE: ReliabilityLevel.UNUSABLE,
+                Factor.AUTHORITY: ReliabilityLevel.READY,
+            }
+        ),
+        citations=(),
+    )
+    assert plan.reasons == {EvidenceReason.NOT_COVERED, EvidenceReason.POORLY_MATCHED}
+
+
+def test_a_handover_has_to_say_why_here_too() -> None:
+    """The invariant triage already holds. Both feed the same queue."""
+    with pytest.raises(UnexplainedEscalationError):
+        Handover(reasons=frozenset())

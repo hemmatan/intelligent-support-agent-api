@@ -207,11 +207,17 @@ def coverage_of(
     that misses "do you ship to Belgium" would send delivery times back as
     though they had been asked for. It goes to somebody instead.
 
-    A partial match fails outright rather than degrading. Half of what was
-    asked, delivered without the half we do not have, reads as a whole answer.
+    Answering part of it is its own rung, which is what the scale says and
+    what the destination makes sensible: a partly covered question goes to
+    somebody here, who has the whole entry in front of them and can finish it.
+    Sending that to a specialist wastes a queue neither of them needed. What
+    must never happen is the half-answer going out as though it were whole,
+    and nothing at this level is delivered to anybody.
     """
     if not requested:
         return ReliabilityLevel.REVIEW_ONLY
     if requested <= carried:
         return ReliabilityLevel.READY
+    if requested & carried:
+        return ReliabilityLevel.REVIEW_ONLY
     return ReliabilityLevel.UNUSABLE

@@ -16,10 +16,10 @@ from app.agent.facts import Fact, coverage_of, facts_in
 from app.agent.intent import Intent
 from app.agent.knowledge import Locale
 from app.agent.profiles import DecisionProfile, Source
-from app.agent.reasons import EscalationReason, ReviewReason
+from app.agent.reasons import EscalationReason, EvidenceReason, ReviewReason
 from app.agent.reliability import Assessment, Factor, ReliabilityLevel, Route
 from app.agent.retrieval import Hit, PolicyIndex, relevance_of
-from app.agent.triage import Proceed
+from app.agent.triage import Proceed, UnexplainedEscalationError
 
 
 @dataclass(frozen=True)
@@ -48,11 +48,24 @@ class Review:
     reason: ReviewReason
 
 
+# Which rating, having decided an outcome, gets recorded as the cause of it.
+_WHY: dict[Factor, EvidenceReason] = {
+    Factor.AUTHORITY: EvidenceReason.UNAUTHORITATIVE,
+    Factor.COVERAGE: EvidenceReason.NOT_COVERED,
+    Factor.RELEVANCE: EvidenceReason.POORLY_MATCHED,
+    Factor.FRESHNESS: EvidenceReason.STALE,
+}
+
+
 @dataclass(frozen=True)
 class Handover:
     """A gate with a known outcome, decided without scoring anything."""
 
     reasons: frozenset[EscalationReason]
+
+    def __post_init__(self) -> None:
+        if not self.reasons:
+            raise UnexplainedEscalationError("an escalation must say why")
 
 
 @dataclass(frozen=True)
@@ -68,6 +81,27 @@ class Plan:
     def route(self) -> Route:
         """Where the weakest required factor sends this."""
         return self.assessment.route
+
+    @property
+    def reasons(self) -> frozenset[EvidenceReason]:
+        """Which ratings held this back, and nothing when none did.
+
+        Every factor tied at the weakest level, not one picked from among
+        them. A record naming coverage where relevance was equally at fault
+        sends whoever reads it to fix one of two things.
+
+        Without this a scored outcome had a destination and no cause, while a
+        gated one had both — so the queue entries that needed explaining most
+        were the ones arriving bare.
+        """
+        if self.route is Route.DIRECT_RESPONSE:
+            return frozenset()
+        weakest = self.assessment.level
+        return frozenset(
+            _WHY[factor]
+            for factor, level in self.assessment.required.items()
+            if level is weakest
+        )
 
 
 Outcome = Plan | Review | Handover

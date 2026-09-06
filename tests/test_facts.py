@@ -58,9 +58,21 @@ def test_a_question_the_evidence_answers_is_covered() -> None:
     assert route_of(coverage_of(requested, SHIPPING)) is Route.DIRECT_RESPONSE
 
 
-def test_half_an_answer_is_not_a_partial_score() -> None:
-    """Sent without the missing half, it reads as the whole reply."""
+def test_part_of_a_question_answered_is_its_own_rung() -> None:
+    """Somebody here finishes it. Nothing part-answered is sent.
+
+    Rating this UNUSABLE queued a specialist for a question one of our own
+    people could close, having the entry in front of them. The scale already
+    had a level for it.
+    """
     requested = frozenset({Fact.RETURN_WINDOW, Fact.RETURN_SHIPPING_COST})
+    assert coverage_of(requested, RETURNS) is ReliabilityLevel.REVIEW_ONLY
+    assert route_of(coverage_of(requested, RETURNS)) is Route.INTERNAL_REVIEW
+
+
+def test_a_question_sharing_nothing_with_the_evidence_is_unusable() -> None:
+    """No overlap at all is a different finding from an incomplete one."""
+    requested = frozenset({Fact.SHIPPING_DESTINATIONS})
     assert coverage_of(requested, RETURNS) is ReliabilityLevel.UNUSABLE
 
 
@@ -134,7 +146,7 @@ def test_naming_a_carved_out_kind_of_thing_outruns_the_general_rule(
     carried = next(entry.facts for entry in load_corpus() if "returns" in entry.id)
     requested = facts_in(question)
     assert requested & {Fact.RETURN_EXCLUDED_CATEGORIES, Fact.RETURN_SALE_ITEMS}
-    assert route_of(coverage_of(requested, carried)) is Route.HUMAN_ESCALATION
+    assert route_of(coverage_of(requested, carried)) is not Route.DIRECT_RESPONSE
 
 
 def test_an_ordinary_purchase_is_still_answered() -> None:

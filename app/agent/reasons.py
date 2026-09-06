@@ -60,5 +60,19 @@ class ReviewReason(StrEnum):
     SOURCE_UNAVAILABLE = "source_unavailable"
 
 
-ReasonCode = EscalationReason | ClarificationReason | ReviewReason
+class EvidenceReason(StrEnum):
+    """Which rating held an answer back, once the gates had all passed.
+
+    A gate names a condition. These name a judgement, and the route beside
+    them says how badly it went: the same shortfall sends a request to a
+    colleague at one level and to a specialist at the next.
+    """
+
+    UNAUTHORITATIVE = "unauthoritative_evidence"
+    NOT_COVERED = "evidence_does_not_cover_the_question"
+    POORLY_MATCHED = "evidence_poorly_matched"
+    STALE = "evidence_stale"
+
+
+ReasonCode = EscalationReason | ClarificationReason | ReviewReason | EvidenceReason
 """Any kind, for the audit trail and anywhere counting all of them."""
