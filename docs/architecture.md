@@ -472,6 +472,63 @@ support systems are investigated after the fact by definition.
 | All data held locally | No typed external boundary, so timeouts, malformed responses and degraded-mode behaviour cannot be exercised |
 | Fixtures as a fourth source | They are test doubles; stale cache is a commerce response with a freshness flag |
 | Model-written text to customers | Connective phrasing smuggles in unbacked claims |
+| A model deciding risk or intent | Measured; it could not tell a report from a question about the same subject. See below |
+
+### The model classification that was built and then removed
+
+A hosted zero-shot classifier was written, wired in, and made mandatory before
+it was measured against anything real. Its unit tests passed throughout, which
+is the first finding: the stand-in returned whatever shape the parser expected,
+so the two agreed with each other and nothing compared either to the provider.
+Two contract errors — the wrong endpoint and the wrong response shape — sat
+underneath a green suite.
+
+Once a token was available, a graded set of English and French messages was run
+against the live provider.
+
+**Danger, each label scored independently.** The score for "somebody used the
+customer's card without their permission":
+
+| message | score |
+|---|---|
+| Someone got into my account and ordered things I never bought | 0.948 |
+| **Where has my parcel got to?** | **0.980** |
+| **How long do I have to send a jacket back?** | **0.983** |
+| How can I keep my account safe from fraud? | 0.999 |
+
+Nothing separates a report from a parcel enquiry, because in this setting the
+model almost never finds contradiction and every score sits near one.
+
+**Danger, labels competing against a neutral option.** Two categories then
+separated and two inverted:
+
+| message | payment | fraud | account | legal |
+|---|---|---|---|---|
+| I was charged twice for the same order | **0.600** | 0.232 | 0.069 | 0.070 |
+| Someone got into my account and ordered things I never bought | 0.124 | *0.074* | **0.757** | 0.013 |
+| My lawyer will be in touch about this | 0.229 | 0.531 | 0.140 | *0.064* |
+| How can I keep my account safe from fraud? | 0.064 | *0.713* | 0.085 | 0.016 |
+
+The clearest legal threat available scores lowest of the four on legal threat.
+The fraud report scores lowest in its own column, because competition hands
+the mass to the account category. No cut-off reorders a harmless question that
+outscores a real report.
+
+**Purpose, on the messages the phrase rules could not place.** Four of six
+came back confidently wrong — "when will I receive my parcel", in French, read
+as the returns policy at 0.885 — and each wrong answer selects the sources an
+answer is built from.
+
+The claim this supports is narrow, and stating it narrowly is the point: *the
+model evaluated here, with the prompting strategies tried here, did not
+reliably distinguish reported incidents from generic questions about the same
+subject, so model-based risk and intent detection were rejected for this
+version.* A different model, or an instruction-following one asked for
+structured output, may well do better; that was not measured, so nothing is
+claimed about it.
+
+What remains is the seam. `IntentClassifier` has no implementation, and the
+emptiness is a result rather than an omission.
 
 ## Scope
 
