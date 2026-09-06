@@ -5,7 +5,8 @@ import pytest
 from app.agent.enquiry import MAX_MESSAGE, Enquiry, NotSomethingToActOnError
 from app.agent.intent import Intent
 from app.agent.profiles import Input
-from app.agent.triage import Proceed, triage
+from app.agent.reasons import ClarificationReason
+from app.agent.triage import Clarify, Proceed, triage
 
 
 def test_which_inputs_are_to_hand_is_read_off_the_values() -> None:
@@ -58,3 +59,34 @@ def test_a_language_nothing_is_written_in_stops_at_the_boundary() -> None:
     """
     with pytest.raises(NotSomethingToActOnError, match="nothing is written in"):
         Enquiry(message="Wo ist meine Bestellung?", locale="de")  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "blank", ["", "   ", "\t", "\n "], ids=["empty", "spaces", "tab", "newline"]
+)
+def test_an_identifier_of_whitespace_is_not_an_identifier(blank: str) -> None:
+    """A form posting every field sends the empty ones too.
+
+    Counted as supplied, the request stopped asking for what it needed and
+    went looking for a record identified by nothing at all.
+    """
+    enquiry = Enquiry(message="Where is my order?", customer=7, order=blank)
+    assert enquiry.order is None
+    assert Input.ORDER_ID not in enquiry.known
+
+
+def test_an_identifier_arrives_without_the_spaces_around_it() -> None:
+    """Two references to one order should not depend on a stray keystroke."""
+    enquiry = Enquiry(
+        message="Where is my order?", order=" ORD-4471 ", product="\tSKU-9"
+    )
+    assert (enquiry.order, enquiry.product) == ("ORD-4471", "SKU-9")
+
+
+@pytest.mark.asyncio
+async def test_a_blank_order_number_is_asked_for_rather_than_looked_up() -> None:
+    """End to end, because the point is what the absence does downstream."""
+    outcome = await triage(
+        Enquiry(message="Where is my order?", customer=7, order="   ")
+    )
+    assert outcome == Clarify(reason=ClarificationReason.MISSING_ORDER_ID)

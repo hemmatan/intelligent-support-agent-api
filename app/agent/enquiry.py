@@ -46,6 +46,14 @@ class Enquiry:
             raise NotSomethingToActOnError(
                 f"nothing is written in {self.locale!r}, so nothing can be said in it"
             )
+        # A form that posts every field sends empty ones too, and an empty
+        # order number is not an order number. Left alone it counted as
+        # supplied, so a request stopped asking for what it needed and went
+        # looking for a record identified by nothing.
+        for named in ("order", "product"):
+            given = getattr(self, named)
+            if given is not None:
+                object.__setattr__(self, named, given.strip() or None)
 
     @property
     def known(self) -> frozenset[Input]:

@@ -11,6 +11,20 @@ from app.core.config import settings
 from main import app
 
 
+@pytest.fixture(autouse=True)
+def _no_embedder(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Start the application without reaching for a hosted model.
+
+    Every test here is about startup and shutdown, and none of them is about
+    embeddings. Left to the ambient configuration they warmed a real index
+    against whatever token the developer had, which is a network call, a
+    ten-second timeout each way, and a result that depends on somebody's .env.
+
+    The two tests that are about the embedder override this themselves.
+    """
+    monkeypatch.setattr(settings, "HUGGINGFACE_API_TOKEN", None)
+
+
 @pytest.mark.asyncio
 async def test_shutdown_disposes_the_database_engine(
     monkeypatch: pytest.MonkeyPatch,
@@ -64,7 +78,7 @@ async def test_without_a_token_the_index_is_lexical_and_the_app_still_starts(
     real token in their .env, and then failed for a reason unconnected to
     anything this covers.
     """
-    monkeypatch.setattr(settings, "HUGGINGFACE_API_TOKEN", None)
+    assert settings.HUGGINGFACE_API_TOKEN is None
     async with app.router.lifespan_context(app):
         assert app.state.policy_index.semantic_ready is False
 
