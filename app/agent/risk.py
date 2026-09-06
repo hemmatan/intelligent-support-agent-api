@@ -27,6 +27,22 @@ from app.agent.text import fold
 _SENTENCE = re.compile(r"[.!?\n]+")
 
 
+_NOT_WORD = re.compile(r"[^a-z0-9']+")
+
+
+def _words(text: str) -> str:
+    """Folded text with punctuation turned to spaces, padded at both ends.
+
+    Phrases are compared against this rather than the raw string, so one only
+    matches whole words. "sue you" sits inside "issue your", and without this
+    the question "do you issue your refunds promptly" reported a legal threat.
+
+    Both sides go through it, so a phrase written with a hyphen still matches
+    the same words written with one.
+    """
+    return f" {_NOT_WORD.sub(' ', fold(text)).strip()} "
+
+
 @dataclass(frozen=True)
 class _Category:
     """A kind of trouble, and the phrases that name it in either language.
@@ -45,6 +61,11 @@ class _Category:
     reason: RiskReason
     reports: tuple[str, ...]
     topics: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        for named in ("reports", "topics"):
+            listed = getattr(self, named)
+            object.__setattr__(self, named, tuple(_words(p) for p in listed))
 
 
 _CATEGORIES = (
@@ -102,8 +123,13 @@ _CATEGORIES = (
             "on a vole ma carte",
         ),
         (
+            # Every inflection is listed. Matching whole words means "fraud"
+            # no longer reaches inside "fraudulently", which is the price of
+            # it no longer reaching inside "issue your".
             "fraud",
             "fraudulent",
+            "fraudulently",
+            "frauds",
             "unauthorized",
             "unauthorised",
             "did not order",
@@ -131,6 +157,7 @@ _CATEGORIES = (
             "bought things i never",
             "ordered things i never",
             "fraude",
+            "frauduleuse",
             "frauduleux",
             "carte volee",
             "carte a ete volee",
@@ -191,13 +218,20 @@ _CATEGORIES = (
     _Category(
         RiskReason.LEGAL_THREAT,
         (
-            "my lawyer",
-            "my solicitor",
+            # "my lawyer" alone is not a threat: somebody's lawyer can be
+            # returning an item for them. The report is what the lawyer is
+            # said to be about to do.
+            "my lawyer will",
+            "my lawyer has",
+            "my lawyer is",
+            "hearing from my lawyer",
+            "my solicitor will",
+            "my solicitor has",
             "take you to court",
-            "sue you",
-            "will be taking legal action",
             "taking legal action",
-            "mon avocat",
+            "sue you",
+            "mon avocat va",
+            "mon avocat vous",
             "je vais porter plainte",
         ),
         (
@@ -218,20 +252,23 @@ _CATEGORIES = (
 # general. Only ever used to overrule the advisory list below, never to
 # require anything, because demanding it is what an earlier version did and it
 # lost "this transaction is fraudulent" — the plainest report there is.
-_FIRST_PERSON = (
-    "i was",
-    "i've been",
-    "i have been",
-    "i am",
-    "i'm",
-    "my ",
-    "mine",
-    "j'ai",
-    "je suis",
-    "mon ",
-    "ma ",
-    "mes ",
-    "on m'a",
+_FIRST_PERSON = tuple(
+    _words(phrase)
+    for phrase in (
+        "i was",
+        "i've been",
+        "i have been",
+        "i am",
+        "i'm",
+        "my ",
+        "mine",
+        "j'ai",
+        "je suis",
+        "mon ",
+        "ma ",
+        "mes ",
+        "on m'a",
+    )
 )
 
 # Asking about policy or prevention. Suppresses a topic only where nobody is
@@ -241,65 +278,71 @@ _FIRST_PERSON = (
 #
 # Splitting on punctuation is not enough for that one. There is no full stop
 # in it.
-_ADVISORY = (
-    "how can i prevent",
-    "how do i prevent",
-    "how do you prevent",
-    "how do you protect",
-    "how do you keep",
-    # Asking how to stay out of trouble, which is not being in it. The list
-    # grew by one wording at a time and each addition is a customer who would
-    # otherwise have been sent to a specialist for asking a sensible question.
-    "how can i keep",
-    "how do i keep",
-    "how can i protect",
-    "how do i protect",
-    "how can i avoid",
-    "how do i avoid",
-    "how can i secure",
-    "how to prevent",
-    "how to protect",
-    "how to avoid",
-    "how to keep",
-    "is it safe to",
-    "how safe is",
-    "how do you handle",
-    "what is your policy",
-    "what's your policy",
-    "what should someone do",
-    "what should i do if",
-    "do you offer",
-    "comment prevenir",
-    "comment proteger",
-    "comment protegez",
-    "comment eviter",
-    "comment securiser",
-    "comment garder",
-    "comment faire pour proteger",
-    "comment eviter que",
-    "est-il sur de",
-    "quelle est votre politique",
-    "que faire si",
+_ADVISORY = tuple(
+    _words(phrase)
+    for phrase in (
+        "how can i prevent",
+        "how do i prevent",
+        "how do you prevent",
+        "how do you protect",
+        "how do you keep",
+        # Asking how to stay out of trouble, which is not being in it. The list
+        # grew by one wording at a time and each addition is a customer who would
+        # otherwise have been sent to a specialist for asking a sensible question.
+        "how can i keep",
+        "how do i keep",
+        "how can i protect",
+        "how do i protect",
+        "how can i avoid",
+        "how do i avoid",
+        "how can i secure",
+        "how to prevent",
+        "how to protect",
+        "how to avoid",
+        "how to keep",
+        "is it safe to",
+        "how safe is",
+        "how do you handle",
+        "what is your policy",
+        "what's your policy",
+        "what should someone do",
+        "what should i do if",
+        "do you offer",
+        "comment prevenir",
+        "comment proteger",
+        "comment protegez",
+        "comment eviter",
+        "comment securiser",
+        "comment garder",
+        "comment faire pour proteger",
+        "comment eviter que",
+        "est-il sur de",
+        "quelle est votre politique",
+        "que faire si",
+    )
 )
 
 
 # Something already happened, as against something that might. Asking how to
 # keep one's account safe is not reporting that it was broken into, and both
 # sentences say "my".
-_ALREADY_HAPPENED = (
-    "was",
-    "were",
-    "has been",
-    "have been",
-    "hasn't",
-    "haven't",
-    "did not",
-    "didn't",
-    "never",
-    "a ete",
-    "ai ete",
-    "ont ete",
-    "n'ai pas",
+_ALREADY_HAPPENED = tuple(
+    _words(phrase)
+    for phrase in (
+        "was",
+        "were",
+        "has been",
+        "have been",
+        "hasn't",
+        "haven't",
+        "did not",
+        "didn't",
+        "never",
+        "a ete",
+        "ai ete",
+        "ont ete",
+        "n'ai pas",
+    )
 )
 
 
@@ -333,13 +376,13 @@ def risks_in(message: str) -> frozenset[RiskReason]:
     than the direction that loses a fraud report. The tests say so plainly
     rather than leaving it to be discovered.
     """
-    folded = fold(message)
     found = set()
-    for sentence in _SENTENCE.split(folded):
-        advisory = _is_advisory(sentence)
+    for sentence in _SENTENCE.split(fold(message)):
+        spaced = _words(sentence)
+        advisory = _is_advisory(spaced)
         for category in _CATEGORIES:
-            reported = any(report in sentence for report in category.reports)
-            mentioned = any(topic in sentence for topic in category.topics)
+            reported = any(report in spaced for report in category.reports)
+            mentioned = any(topic in spaced for topic in category.topics)
             if reported or (mentioned and not advisory):
                 found.add(category.reason)
     return frozenset(found)

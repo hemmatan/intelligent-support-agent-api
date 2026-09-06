@@ -246,7 +246,7 @@ def test_asking_about_a_subject_and_reporting_it_go_different_ways(
         ),
         (
             RiskReason.LEGAL_THREAT,
-            "What is your policy if my lawyer contacts you?",
+            "What is your policy on refunds, since my lawyer will be writing to you?",
         ),
     ],
     ids=["account, one sentence", "fraud, one sentence", "account, french", "legal"],
@@ -284,3 +284,49 @@ def test_what_the_vocabulary_does_not_cover_is_recorded_not_assumed() -> None:
     """
     unlisted = "an individual has been helping themselves to my funds"
     assert risks_in(unlisted) == frozenset()
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Do you issue your refunds promptly?",
+        "Please reissue your invoice",
+        "The parcel was unattended",
+    ],
+    ids=["sue you inside issue your", "reissue your", "unattended"],
+)
+def test_a_phrase_does_not_match_inside_a_longer_word(message: str) -> None:
+    """Substring matching escalated an ordinary question about refunds.
+
+    "sue you" sits inside "issue your", so asking whether refunds are issued
+    promptly was reported as a threat of legal action. Phrases match whole
+    words now, on both sides, so a hyphenated wording still finds the same
+    words written without one.
+    """
+    assert risks_in(message) == frozenset()
+
+
+def test_somebody_having_a_lawyer_is_not_by_itself_a_threat() -> None:
+    """A lawyer can be returning an item on somebody's behalf.
+
+    Listing the bare word as a report meant any mention of one escalated,
+    including inside a question about policy. What reports is what the lawyer
+    is said to be about to do.
+    """
+    assert risks_in("What is your policy if my lawyer returns an item for me?") == (
+        frozenset()
+    )
+    assert RiskReason.LEGAL_THREAT in risks_in("My lawyer will be in touch")
+    assert RiskReason.LEGAL_THREAT in risks_in("Mon avocat va vous contacter")
+
+
+def test_an_inflection_nobody_listed_is_not_matched_by_a_shorter_one() -> None:
+    """The cost of whole-word matching, paid deliberately.
+
+    "fraud" used to reach inside "fraudulently" for the same reason it reached
+    inside "issue your". Every form a customer might write is listed instead.
+    """
+    assert risks_in("Someone hacked my account and used my card fraudulently") == {
+        RiskReason.ACCOUNT_COMPROMISE,
+        RiskReason.SUSPECTED_FRAUD,
+    }
