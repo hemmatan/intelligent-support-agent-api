@@ -8,10 +8,12 @@ import pytest
 from app.agent.facts import Fact
 from app.agent.knowledge import PolicyEntry, load_corpus
 from app.agent.responses import (
+    ApprovedReply,
     NothingApprovedToSayError,
     ResponseTemplate,
     ResponseTemplateError,
     TemplateLibrary,
+    UnattributedReplyError,
     load_templates,
 )
 
@@ -116,12 +118,12 @@ def test_the_reply_reads_the_same_way_round_every_time() -> None:
     """Ordered by the vocabulary, not by which the question mentioned first."""
     library = load_templates()
     both = frozenset({Fact.RETURN_WINDOW, Fact.RETURN_ELIGIBILITY})
-    text, used = library.say(both, entry("returns.standard.en.v1"), "en")
-    assert text == (
+    reply = library.say(both, entry("returns.standard.en.v1"), "en")
+    assert reply.text == (
         "Returns are accepted within 30 days of delivery. Most items can be "
         "returned if unworn and in the original packaging."
     )
-    assert [reference.split("@")[0] for reference in used] == [
+    assert [reference.split("@")[0] for reference in reply.said] == [
         "say:return_window.en.v1",
         "say:return_eligibility.en.v1",
     ]
@@ -131,13 +133,13 @@ def test_a_named_choice_reaches_a_customer_as_words() -> None:
     """ "standard_items" is how we store it, not something to send anybody."""
     library = load_templates()
     for locale, expected in (("en", "Most items"), ("fr", "La plupart des articles")):
-        text, _ = library.say(
+        reply = library.say(
             frozenset({Fact.RETURN_ELIGIBILITY}),
             entry(f"returns.standard.{locale}.v1"),
             locale,  # type: ignore[arg-type]
         )
-        assert text.startswith(expected)
-        assert "_" not in text
+        assert reply.text.startswith(expected)
+        assert "_" not in reply.text
 
 
 def test_a_language_nobody_wrote_for_says_nothing(tmp_path: Path) -> None:
@@ -161,3 +163,71 @@ def test_no_claim_leaves_the_corpus_already_turned_into_prose() -> None:
     """Values come out as authored. Turning them into words is the phrase book."""
     for policy in load_corpus():
         assert policy.claims.values() == policy.claims.model_dump()
+
+
+def test_wording_that_cannot_name_its_source_is_not_a_reply() -> None:
+    """A bare string carries the same words with nothing behind them.
+
+    Anywhere one is accepted, a string composed on the spot is accepted too,
+    so the reply is a thing that cannot exist without its provenance.
+    """
+    with pytest.raises(UnattributedReplyError, match="names no approved wording"):
+        ApprovedReply(text="Returns are accepted within 30 days.", said=())
+    with pytest.raises(UnattributedReplyError, match="says nothing"):
+        ApprovedReply(text="  ", said=("say:return_window.en.v1@sha256:abc",))
+
+
+ELIGIBILITY_WORDS = {
+    "standard_items": "Most items",
+    "all_items": "All items",
+    "selected_items": "Selected items",
+}
+CHOICES = {
+    **WORDING,
+    "fact": "return_eligibility",
+    "sentence": "{eligibility} can be returned.",
+    "words": ELIGIBILITY_WORDS,
+}
+
+
+def test_every_value_a_slot_can_hold_has_words_in_the_same_file() -> None:
+    """Adding a choice to a claim is exactly when this gets forgotten.
+
+    Where it used to surface was the reply, because the wording lived beside
+    the data rather than beside the sentence spending it.
+    """
+    with pytest.raises(ValueError, match="no approved words"):
+        ResponseTemplate.model_validate(
+            {**CHOICES, "words": {"standard_items": "Most items"}}
+        )
+
+
+def test_words_for_a_value_no_claim_can_take_are_refused() -> None:
+    """Wording nothing can select is wording nobody reviews."""
+    with pytest.raises(ValueError, match="not a value any claim can take"):
+        ResponseTemplate.model_validate(
+            {**CHOICES, "words": {**ELIGIBILITY_WORDS, "clearance": "Clearance items"}}
+        )
+
+
+def test_rewriting_approved_words_moves_the_hash_under_one_version() -> None:
+    """A version says which wording was meant, not what was under it.
+
+    Editing approved copy in place is the change nobody announces and the one
+    an audit most needs to see.
+    """
+    before = ResponseTemplate.model_validate(CHOICES)
+    after = ResponseTemplate.model_validate(
+        {**CHOICES, "words": {**ELIGIBILITY_WORDS, "standard_items": "Nearly all"}}
+    )
+    assert before.reference == after.reference
+    assert before.content_hash != after.content_hash
+
+
+def test_a_reply_records_the_exact_wording_it_used() -> None:
+    library = load_templates()
+    reply = library.say(
+        frozenset({Fact.RETURN_WINDOW}), entry("returns.standard.en.v1"), "en"
+    )
+    template = next(t for t in library if t.reference == "say:return_window.en.v1")
+    assert reply.said == (f"say:return_window.en.v1@{template.content_hash}",)

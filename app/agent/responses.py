@@ -19,6 +19,7 @@ import json
 import re
 import tomllib
 from collections.abc import Iterator, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import get_args
 
@@ -57,6 +58,30 @@ class NothingApprovedToSayError(RuntimeError):
     A gap in the phrase book, not in the evidence. The request waits for
     somebody here rather than being answered in words nobody signed off.
     """
+
+
+class UnattributedReplyError(ValueError):
+    """Wording for a customer that cannot name where it came from."""
+
+
+@dataclass(frozen=True)
+class ApprovedReply:
+    """Sentences a person signed off, inseparable from what they were.
+
+    A plain string would have carried the same words with nothing behind
+    them, and anywhere a string is accepted, one composed on the spot is
+    accepted too. This can only be built with its provenance attached, so
+    holding one is evidence rather than a claim about where it came from.
+    """
+
+    text: str
+    said: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if not self.text.strip():
+            raise UnattributedReplyError("an approved reply that says nothing")
+        if not self.said:
+            raise UnattributedReplyError(f"{self.text!r} names no approved wording")
 
 
 class ResponseTemplate(BaseModel):
@@ -178,7 +203,7 @@ class TemplateLibrary:
 
     def say(
         self, facts: frozenset[Fact], entry: PolicyEntry, locale: Locale
-    ) -> tuple[str, tuple[str, ...]]:
+    ) -> ApprovedReply:
         """The reply, and the templates it was built from.
 
         Ordered by the fact vocabulary rather than by whatever the question
@@ -198,7 +223,7 @@ class TemplateLibrary:
             used.append(f"{template.reference}@{template.content_hash}")
         if not sentences:
             raise NothingApprovedToSayError("an answer that says nothing is not one")
-        return " ".join(sentences), tuple(used)
+        return ApprovedReply(text=" ".join(sentences), said=tuple(used))
 
 
 def load_templates(directory: Path = DEFAULT_TEMPLATE_DIR) -> TemplateLibrary:

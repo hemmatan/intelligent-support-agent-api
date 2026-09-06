@@ -23,7 +23,11 @@ from app.agent.reasons import (
     ReviewReason,
 )
 from app.agent.reliability import Assessment, Factor, ReliabilityLevel, Route
-from app.agent.responses import NothingApprovedToSayError, TemplateLibrary
+from app.agent.responses import (
+    ApprovedReply,
+    NothingApprovedToSayError,
+    TemplateLibrary,
+)
 from app.agent.retrieval import Hit, PolicyIndex, relevance_of
 from app.agent.triage import Proceed, Review, UnexplainedEscalationError
 
@@ -80,17 +84,23 @@ class Plan:
     requested: frozenset[Fact]
     assessment: Assessment
     citations: tuple[Citation, ...]
-    reply: str | None = None
-    said: tuple[str, ...] = ()
+    reply: ApprovedReply | None = None
 
     def __post_init__(self) -> None:
         going_out = self.route is Route.DIRECT_RESPONSE
-        if going_out and not self.reply:
+        if going_out and self.reply is None:
             raise MisdirectedReplyError("a direct answer has to say something")
         if not going_out and self.reply is not None:
             raise MisdirectedReplyError(
                 f"a {self.route} carries wording written for a customer"
             )
+        if going_out and not self.citations:
+            raise MisdirectedReplyError("an answer sent citing nothing")
+
+    @property
+    def said(self) -> tuple[str, ...]:
+        """The wording this was built from, and nothing when none was."""
+        return self.reply.said if self.reply else ()
 
     @property
     def route(self) -> Route:
@@ -222,7 +232,7 @@ async def plan_for(
         )
 
     try:
-        reply, said = templates.say(requested, best.entry, proceed.locale)
+        reply = templates.say(requested, best.entry, proceed.locale)
     except NothingApprovedToSayError:
         # The evidence was good enough. Nobody has written the sentence.
         return Review(reason=ReviewReason.NOTHING_APPROVED_TO_SAY)
@@ -233,5 +243,4 @@ async def plan_for(
         assessment=assessment,
         citations=citations,
         reply=reply,
-        said=said,
     )

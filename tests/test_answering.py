@@ -20,7 +20,7 @@ from app.agent.knowledge import load_corpus
 from app.agent.profiles import Source, profile_for
 from app.agent.reasons import BlockedReason, EvidenceReason, ReviewReason
 from app.agent.reliability import Assessment, Factor, ReliabilityLevel, Route
-from app.agent.responses import TemplateLibrary, load_templates
+from app.agent.responses import ApprovedReply, TemplateLibrary, load_templates
 from app.agent.retrieval import PolicyIndex
 from app.agent.triage import Proceed, UnexplainedEscalationError
 
@@ -283,7 +283,8 @@ async def test_an_answer_is_assembled_from_approved_wording(
         templates=templates,
     )
     assert isinstance(outcome, Plan)
-    assert outcome.reply == "Returns are accepted within 30 days of delivery."
+    assert outcome.reply is not None
+    assert outcome.reply.text == "Returns are accepted within 30 days of delivery."
     assert len(outcome.said) == 1
     reference, _, digest = outcome.said[0].partition("@")
     assert reference == "say:return_window.en.v1"
@@ -328,7 +329,10 @@ def test_neither_half_of_the_delivery_rule_can_be_broken() -> None:
             requested=frozenset(),
             assessment=sunk,
             citations=(),
-            reply="Returns are accepted within 30 days.",
+            reply=ApprovedReply(
+                text="Returns are accepted within 30 days.",
+                said=("say:return_window.en.v1@sha256:abc",),
+            ),
         )
 
 
@@ -346,3 +350,22 @@ async def test_good_evidence_nobody_wrote_a_sentence_for_waits(
         templates=TemplateLibrary([]),
     )
     assert outcome == Review(reason=ReviewReason.NOTHING_APPROVED_TO_SAY)
+
+
+def test_an_answer_sent_citing_nothing_is_refused() -> None:
+    """Approved wording is not on its own a reason to have said it.
+
+    A reply resting on no evidence at all is one nobody can re-check, which
+    is the state the citation record exists to make impossible.
+    """
+    with pytest.raises(MisdirectedReplyError, match="citing nothing"):
+        Plan(
+            intent=Intent.RETURN_POLICY,
+            requested=frozenset(),
+            assessment=Assessment(required={Factor.COVERAGE: ReliabilityLevel.READY}),
+            citations=(),
+            reply=ApprovedReply(
+                text="Returns are accepted within 30 days.",
+                said=("say:return_window.en.v1@sha256:abc",),
+            ),
+        )
