@@ -21,10 +21,12 @@ from app.agent.responses import ApprovedReply
 from app.agent.triage import Clarify, Escalate
 from app.agent.triage import Review as TriageReview
 from app.schemas.support import (
+    SCALE,
     Answer,
     Clarification,
     Escalation,
     InternalReview,
+    Reliability,
     SupportMessage,
     SupportReply,
     replied,
@@ -140,20 +142,56 @@ def test_a_reply_is_told_apart_by_its_route_alone() -> None:
 
 
 def test_an_answer_cannot_be_described_without_what_it_said() -> None:
-    """The nullable fields a single response model would have needed.
+    """Each of these is otherwise complete, so only the named fault fails it.
 
-    One shape carrying every outcome would let an escalation hold a reply, or
-    an answer hold none, and leave a client to work out which combinations
-    were real.
+    Written the lazy way — leaving several fields out at once — they passed
+    on whichever pydantic noticed first, and proved nothing about the rule
+    they were named for.
     """
-    with pytest.raises(ValidationError):
-        Answer(intent=Intent.RETURN_POLICY, reply="x", citations=[], wording=[])  # type: ignore[call-arg]
-    with pytest.raises(ValidationError):
-        REPLIES.validate_python(
-            {"route": "human_escalation", "reply": "Returns are accepted."}
-        )
+    whole = replied(answered()).model_dump(mode="json")
+
+    for missing in ("reply", "citations", "wording"):
+        with pytest.raises(ValidationError, match=missing):
+            REPLIES.validate_python(
+                {**whole, missing: [] if missing != "reply" else ""}
+            )
+
+    stopped = replied(Escalate(frozenset({RiskReason.PAYMENT_DISPUTE}))).model_dump(
+        mode="json"
+    )
+    with pytest.raises(ValidationError, match="reasons"):
+        REPLIES.validate_python({**stopped, "reasons": []})
+    with pytest.raises(ValidationError, match="reply"):
+        REPLIES.validate_python({**stopped, "reply": "Returns are accepted."})
     with pytest.raises(ValidationError):
         REPLIES.validate_python({"route": "clarification", "reason": "payment_dispute"})
+
+
+def test_a_published_rating_has_to_be_a_rating() -> None:
+    """The scale is a promise, and an unconstrained field is not one."""
+    sound = replied(answered()).model_dump(mode="json")["reliability"]
+    for broken in (
+        {**sound, "level": "banana"},
+        {**sound, "scale": -2},
+        {**sound, "ordinal": 99},
+        {**sound, "factors": {"coverage": "maybe"}},
+        {**sound, "factors": {"vibes": "ready"}},
+        {**sound, "extra": 1},
+    ):
+        with pytest.raises(ValidationError):
+            Reliability.model_validate(broken)
+
+
+def test_the_two_ways_a_rating_states_itself_have_to_agree() -> None:
+    """A caller reading the name and one reading the number must not differ."""
+    sound = replied(answered()).model_dump(mode="json")["reliability"]
+    with pytest.raises(ValidationError, match="on this scale"):
+        Reliability.model_validate({**sound, "ordinal": 0})
+
+
+def test_the_published_scale_still_matches_the_levels() -> None:
+    """Stated as a constant to callers; the import fails if a level is added."""
+    assert int(max(ReliabilityLevel)) == SCALE
 
 
 @pytest.mark.parametrize(
@@ -167,6 +205,7 @@ def test_an_answer_cannot_be_described_without_what_it_said() -> None:
         {"message": "hello", "order_id": "ORD 4471"},
         {"message": "hello", "order_id": "a" * 65},
         {"message": "hello", "product_reference": "../../etc/passwd"},
+        {"message": "hello", "oder_id": "ORD-4471"},
     ],
     ids=[
         "empty",
@@ -177,6 +216,7 @@ def test_an_answer_cannot_be_described_without_what_it_said() -> None:
         "id with a space",
         "id too long",
         "id that is a path",
+        "a misspelled field",
     ],
 )
 def test_a_malformed_request_is_refused_before_anything_reads_it(

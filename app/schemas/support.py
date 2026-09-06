@@ -11,21 +11,22 @@ the route says which. Status codes are kept for the request being wrong,
 the caller being unknown, and the service being broken.
 """
 
-from typing import Annotated, Literal
+from typing import Annotated, Final, Literal
 
-from pydantic import BaseModel, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from app.agent.answering import Handover, Outcome, Plan
 from app.agent.answering import Review as PlanReview
 from app.agent.enquiry import MAX_MESSAGE
 from app.agent.intent import Intent
+from app.agent.profiles import Source
 from app.agent.reasons import (
     ClarificationReason,
     EscalationReason,
     EvidenceReason,
     ReviewReason,
 )
-from app.agent.reliability import ReliabilityLevel, Route
+from app.agent.reliability import Factor, ReliabilityLevel, Route
 from app.agent.triage import Clarify, Escalate, Proceed
 from app.agent.triage import Review as TriageReview
 
@@ -45,6 +46,24 @@ Identifier = Annotated[
 ]
 
 
+# Nothing outside a model is accepted anywhere here. A misspelled field was
+# being dropped without complaint, so a client sending "oder_id" got a request
+# with no order number and no reason to think anything had gone wrong.
+_EXACT = ConfigDict(extra="forbid")
+
+LevelName = Literal["unusable", "review_only", "acceptable", "ready"]
+
+# Published as a constant so a generated client gets one, and checked against
+# the enum here so adding a level fails at import rather than in somebody's
+# parser months later.
+SCALE: Final = 3
+if int(max(ReliabilityLevel)) != SCALE:
+    raise RuntimeError(
+        f"the scale published to callers is {SCALE}, the levels go to "
+        f"{int(max(ReliabilityLevel))}"
+    )
+
+
 class SupportMessage(BaseModel):
     """One question from a signed-in customer.
 
@@ -52,6 +71,8 @@ class SupportMessage(BaseModel):
     where the customer set it, so a client cannot ask for an answer in a
     language nothing is written in.
     """
+
+    model_config = _EXACT
 
     message: Message
     order_id: Identifier | None = None
@@ -61,35 +82,56 @@ class SupportMessage(BaseModel):
 class Citation(BaseModel):
     """One piece of evidence an answer rests on."""
 
-    source: str
-    reference: str
-    content_hash: str
+    model_config = _EXACT
+
+    source: Source
+    reference: str = Field(min_length=1)
+    content_hash: str = Field(min_length=1)
 
 
 class Reliability(BaseModel):
     """How far the evidence carried, named on a scale rather than a percentage."""
 
-    level: str
-    ordinal: int
-    scale: int
-    factors: dict[str, str]
+    model_config = _EXACT
+
+    level: LevelName
+    ordinal: int = Field(ge=0, le=SCALE)
+    scale: Literal[3]  # SCALE; a Literal cannot be spelled with a name
+    factors: dict[Factor, LevelName]
+
+    @model_validator(mode="after")
+    def check_the_ordinal_belongs_to_the_level(self) -> "Reliability":
+        """Two ways of saying one thing, and they have to agree.
+
+        Published apart, a reply could name the weakest level while carrying
+        the number of the strongest, and a caller reading whichever it
+        preferred would draw the opposite conclusion.
+        """
+        if self.ordinal != int(ReliabilityLevel[self.level.upper()]):
+            raise ValueError(f"{self.level} is not {self.ordinal} on this scale")
+        return self
 
 
 class Answer(BaseModel):
     """Wording a person approved, and everything it was built from."""
 
+    model_config = _EXACT
+
     route: Literal[Route.DIRECT_RESPONSE] = Route.DIRECT_RESPONSE
     intent: Intent
-    reply: str
-    citations: list[Citation]
+    reply: str = Field(min_length=1)
+    citations: list[Citation] = Field(min_length=1)
     wording: list[str] = Field(
-        description="Approved sentences used, each with the digest it had"
+        min_length=1,
+        description="Approved sentences used, each with the digest it had",
     )
     reliability: Reliability
 
 
 class Clarification(BaseModel):
     """Something is missing that the customer can supply."""
+
+    model_config = _EXACT
 
     route: Literal[Route.CLARIFICATION] = Route.CLARIFICATION
     reason: ClarificationReason
@@ -98,16 +140,20 @@ class Clarification(BaseModel):
 class Escalation(BaseModel):
     """A person takes this one. No wording is included, because none was made."""
 
+    model_config = _EXACT
+
     route: Literal[Route.HUMAN_ESCALATION] = Route.HUMAN_ESCALATION
-    reasons: list[EscalationReason | EvidenceReason]
+    reasons: list[EscalationReason | EvidenceReason] = Field(min_length=1)
     reliability: Reliability | None = None
 
 
 class InternalReview(BaseModel):
     """Somebody here finishes it. Nothing is wrong with the request."""
 
+    model_config = _EXACT
+
     route: Literal[Route.INTERNAL_REVIEW] = Route.INTERNAL_REVIEW
-    reasons: list[ReviewReason | EvidenceReason]
+    reasons: list[ReviewReason | EvidenceReason] = Field(min_length=1)
     reliability: Reliability | None = None
 
 
@@ -125,11 +171,11 @@ def _reliability(plan: Plan) -> Reliability:
     """
     rated = plan.assessment
     return Reliability(
-        level=rated.level.name.lower(),
+        level=rated.level.name.lower(),  # type: ignore[arg-type]
         ordinal=int(rated.level),
-        scale=int(max(ReliabilityLevel)),
+        scale=SCALE,
         factors={
-            factor.value: level.name.lower()
+            factor: level.name.lower()  # type: ignore[misc]
             for factor, level in {**rated.required, **rated.contextual}.items()
         },
     )
