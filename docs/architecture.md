@@ -73,7 +73,7 @@ flowchart TD
     LVL -->|REVIEW_ONLY| REV
     LVL -->|UNUSABLE| ESC
 
-    REV --> STAFF{Staff decision}
+    REV --> STAFF{Staff decision<br/>claimed and resolved through the API}
     STAFF -->|approve or edit| TPL
     STAFF -->|reject| ESC
 

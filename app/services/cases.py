@@ -12,13 +12,16 @@ closing them yet.
 """
 
 import uuid
+from collections.abc import Sequence
 from typing import Protocol
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.enquiry import Enquiry
 from app.agent.reliability import Route
 from app.models.support import SupportCase
+from app.models.user import utc_now
 from app.schemas.support import Answer, SupportReply
 
 # The routes that leave work behind for somebody here.
@@ -88,3 +91,76 @@ class DatabaseCases:
             )
         )
         await self._db.commit()
+
+
+class CaseNotFoundError(LookupError):
+    """No case with that reference, or none this person may act on."""
+
+
+class CaseAlreadyClosedError(RuntimeError):
+    """Somebody has already dealt with it.
+
+    Closing twice would overwrite the first person's account of what they did,
+    and the second entry is the one that survives — which is the wrong way
+    round for a record of who handled what.
+    """
+
+
+class CaseDesk:
+    """Reading and working the queue, as a member of staff.
+
+    Only cases that stopped short of an answer appear. A request that was
+    answered is a record; a request that was not is somebody's work.
+    """
+
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
+
+    async def waiting(self, limit: int = 50) -> Sequence[SupportCase]:
+        """Open cases, oldest first, because that is the order they aged in."""
+        found = await self._db.execute(
+            select(SupportCase)
+            .where(
+                SupportCase.route.in_([str(route) for route in NEEDS_SOMEBODY]),
+                SupportCase.closed_at.is_(None),
+            )
+            .order_by(SupportCase.created_at)
+            .limit(limit)
+        )
+        return found.scalars().all()
+
+    async def _open(self, reference: str) -> SupportCase:
+        found = await self._db.execute(
+            select(SupportCase).where(SupportCase.reference == reference)
+        )
+        case = found.scalar_one_or_none()
+        if case is None or case.route not in {str(route) for route in NEEDS_SOMEBODY}:
+            # An answered request is not somebody's to claim, and saying so
+            # separately would tell a caller which references exist.
+            raise CaseNotFoundError(reference)
+        if case.closed_at is not None:
+            raise CaseAlreadyClosedError(reference)
+        return case
+
+    async def claim(self, reference: str, agent: int) -> SupportCase:
+        """Put a name against it, so two people do not both start."""
+        case = await self._open(reference)
+        case.assigned_to = agent
+        await self._db.commit()
+        await self._db.refresh(case)
+        return case
+
+    async def resolve(self, reference: str, agent: int, note: str) -> SupportCase:
+        """Close it, recording who and what.
+
+        Claiming first is not required. Somebody who deals with a case
+        immediately should not have to perform a two-step to say so, and the
+        record ends up naming them either way.
+        """
+        case = await self._open(reference)
+        case.assigned_to = case.assigned_to or agent
+        case.resolution = note
+        case.closed_at = utc_now()
+        await self._db.commit()
+        await self._db.refresh(case)
+        return case

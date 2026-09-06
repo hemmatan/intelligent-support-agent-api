@@ -21,6 +21,7 @@ from app.agent.messages import load_messages
 from app.agent.responses import load_templates
 from app.agent.retrieval import PolicyIndex
 from app.api.auth import router as auth_router
+from app.api.cases import router as cases_router
 from app.api.health import router as health_router
 from app.api.support import router as support_router
 from app.core.config import settings
@@ -107,6 +108,10 @@ TAGS = [
         "description": "Ask the agent a question and receive one of four decisions.",
     },
     {"name": "authentication", "description": "Accounts, tokens and API keys."},
+    {
+        "name": "staff",
+        "description": "The queue of requests the agent declined to answer.",
+    },
     {"name": "system", "description": "Liveness."},
 ]
 
@@ -183,6 +188,9 @@ app.include_router(
 )
 app.include_router(
     support_router, prefix=f"{settings.API_V1_PREFIX}/support", tags=["support"]
+)
+app.include_router(
+    cases_router, prefix=f"{settings.API_V1_PREFIX}/support/cases", tags=["staff"]
 )
 
 if __name__ == "__main__":

@@ -235,6 +235,23 @@ machine-readable — branch on it, count it, assert against it — while the
 message is written for a person and translated. Reading the message to work
 out what happened means reading the wrong field.
 
+### Staff
+
+Requires the `support_agent` or `admin` role. This is the other half of
+escalating: the queue exists so that telling a customer somebody is dealing
+with their message is true.
+
+- `GET /api/v1/support/cases` - Requests still waiting for a person, oldest first
+- `POST /api/v1/support/cases/{reference}/claim` - Put your name against one
+- `POST /api/v1/support/cases/{reference}/resolve` - Close it, recording what was done
+
+A case carries everything the decision rested on — the message, the order
+number and product reference the customer supplied, the route and reasons, the
+words they received, the evidence cited and the rating each dimension earned —
+so nobody has to write back for something already given. Answered requests do
+not appear: they are records, not work. Resolving twice is refused, because the
+second note would replace the account of whoever did it.
+
 ### System
 
 - `GET /health` - Health check endpoint
