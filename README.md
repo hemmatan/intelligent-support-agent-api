@@ -385,11 +385,13 @@ Docker probes `/health` from inside the container every 30 seconds, after a
 10-second startup grace period. The probe uses Python's standard library, so
 the image does not carry a separate HTTP client solely for health checks.
 
-The setup is not suitable for production as it stands. `docker-compose.yml`
-bind-mounts the source tree, and the startup wrapper does not yet hand process
-control directly to Uvicorn. Known work before a production deployment:
+After migrations succeed, `start.sh` replaces its shell process with Uvicorn.
+Uvicorn therefore runs as PID 1 and receives container termination signals
+directly during a graceful stop.
 
-- Direct signal delivery to Uvicorn during graceful container shutdown.
+The setup is not suitable for production as it stands: `docker-compose.yml`
+bind-mounts the source tree. Known work before a production deployment:
+
 - PostgreSQL with persistent storage and migrations run as a one-shot service.
 - A production Compose file without source-code bind mounts.
 
