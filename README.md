@@ -364,13 +364,15 @@ The current Docker setup is intentionally development-oriented:
 - `docker-compose.yml`: Baseline local/demo setup without auto-reload.
 - `docker-compose.dev.yml`: Local development setup with source mounting and hot-reload.
 
+The build context is filtered by `.dockerignore`: local environment files,
+virtual environments, repository history, databases and generated caches are
+never sent to the builder. Runtime assets remain available to the image.
+
 Neither is suitable for production as it stands. The image builds in a single
 stage, runs as root, and has no health check; `docker-compose.yml` bind-mounts
 the source tree. Known work before a production deployment:
 
 - A multi-stage build on `python:3.11-slim` with a non-root runtime user.
-- A `.dockerignore`, so the build context excludes `.venv/`, `.git/`, local
-  databases and any `.env`.
 - A container health check and graceful shutdown handling.
 - PostgreSQL with persistent storage and migrations run as a one-shot service.
 - A production Compose file without source-code bind mounts.
