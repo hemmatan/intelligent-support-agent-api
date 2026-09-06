@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="../assets/dorna-shop-mark.png" alt="" width="64">
+</p>
+
 # Support agent — design decisions
 
 Decisions taken before the support-agent workflow was implemented, and

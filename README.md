@@ -1,4 +1,14 @@
-# DornaShop Support API
+<p align="center">
+  <img src="assets/dorna-shop-logo.png" alt="DornaShop" width="320">
+</p>
+
+<h1 align="center">DornaShop Support Agent</h1>
+
+<p align="center">
+  An evidence-grounded support API: every answer cites the approved policy it
+  came from, and anything it cannot ground is routed to a person instead.
+</p>
+
 
 A FastAPI service for DornaShop's intelligent customer-support agent. The
 current foundation provides authentication, authorization, asynchronous database

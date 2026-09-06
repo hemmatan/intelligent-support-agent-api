@@ -2,10 +2,16 @@
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Any
 
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
+from fastapi.openapi.utils import get_openapi
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.agent.answering import Sources
 from app.agent.embedding import Embedder
@@ -67,7 +73,13 @@ def _embedder() -> Embedder | None:
 # Rendered at the top of the interactive docs. Markdown, because the four
 # outcomes are the first thing anybody reading this API needs to understand
 # and a one-line summary cannot carry them.
+ASSETS = Path(__file__).parent / "assets"
+LOGO = "/assets/dorna-shop-logo.png"
+MARK = "/assets/dorna-shop-mark.png"
+
 DESCRIPTION = f"""
+<img src="{LOGO}" alt="DornaShop" width="280">
+
 {settings.PROJECT_DESCRIPTION}.
 
 Ask a question at `POST {settings.API_V1_PREFIX}/support/messages` and one of
@@ -106,9 +118,54 @@ app = FastAPI(
     openapi_tags=TAGS,
     version=settings.VERSION,
     openapi_url=f"{settings.API_V1_PREFIX}/openapi.json",
-    docs_url=f"{settings.API_V1_PREFIX}/docs",
-    redoc_url=f"{settings.API_V1_PREFIX}/redoc",
+    # Served below instead, so the tab carries the shop's mark rather than
+    # the framework's.
+    docs_url=None,
+    redoc_url=None,
 )
+
+app.mount("/assets", StaticFiles(directory=ASSETS), name="assets")
+
+
+@app.get(f"{settings.API_V1_PREFIX}/docs", include_in_schema=False)
+async def swagger_ui() -> HTMLResponse:
+    """The interactive documentation, wearing the shop's own mark."""
+    return get_swagger_ui_html(
+        openapi_url=f"{settings.API_V1_PREFIX}/openapi.json",
+        title=f"{settings.PROJECT_NAME} — API",
+        swagger_favicon_url=MARK,
+    )
+
+
+@app.get(f"{settings.API_V1_PREFIX}/redoc", include_in_schema=False)
+async def redoc() -> HTMLResponse:
+    return get_redoc_html(
+        openapi_url=f"{settings.API_V1_PREFIX}/openapi.json",
+        title=f"{settings.PROJECT_NAME} — API",
+        redoc_favicon_url=MARK,
+    )
+
+
+def branded_openapi() -> dict[str, Any]:
+    """The schema, with the mark ReDoc renders in its sidebar.
+
+    Cached on the app the way FastAPI caches its own, so the schema is built
+    once rather than on every request for the docs page.
+    """
+    if app.openapi_schema is None:
+        schema = get_openapi(
+            title=app.title,
+            version=app.version,
+            description=app.description,
+            routes=app.routes,
+            tags=TAGS,
+        )
+        schema["info"]["x-logo"] = {"url": LOGO, "altText": settings.PROJECT_NAME}
+        app.openapi_schema = schema
+    return app.openapi_schema
+
+
+app.openapi = branded_openapi  # type: ignore[method-assign]
 
 # Set up CORS
 app.add_middleware(
