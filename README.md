@@ -376,11 +376,15 @@ The image uses a multi-stage `python:3.11-slim` build. Dependencies are
 installed outside the runtime stage, which receives only the virtual
 environment, application code, migrations, startup script and served assets.
 
-The setup is not suitable for production as it stands. The image still runs as
-root and has no health check; `docker-compose.yml` bind-mounts the source tree.
-Known work before a production deployment:
+The runtime process uses the dedicated `dornashop` account with UID/GID 10001.
+It owns the working directory so the local SQLite default can create its
+database; dependencies and application files remain root-owned and read-only
+to the process.
 
-- A non-root runtime user with ownership limited to the files it needs.
+The setup is not suitable for production as it stands. The image has no health
+check, and `docker-compose.yml` bind-mounts the source tree. Known work before a
+production deployment:
+
 - A container health check and graceful shutdown handling.
 - PostgreSQL with persistent storage and migrations run as a one-shot service.
 - A production Compose file without source-code bind mounts.
