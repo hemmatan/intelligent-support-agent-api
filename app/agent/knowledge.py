@@ -31,6 +31,7 @@ from pydantic import (
 )
 
 from app.agent.facts import Fact
+from app.agent.text import rendered
 
 Locale = Literal["en", "fr"]
 
@@ -228,28 +229,13 @@ class BasePolicyEntry(BaseModel):
             raise ValueError(f"prose_template spells out {typed}; name the claim")
         return self
 
-    def _spoken(self, value: object) -> str:
-        """One claim value as this language writes it.
-
-        Figures print as themselves. Anything named — a slug, a choice — goes
-        through the wording, because printing it raw puts an internal token in
-        the text retrieval searches, where it matches nothing a customer types.
-        """
-        if isinstance(value, list | tuple):
-            spoken = [self._spoken(item) for item in value]
-            if len(spoken) < 2:
-                return "".join(spoken)
-            return f"{', '.join(spoken[:-1])} {_JOINS[self.locale]} {spoken[-1]}"
-        if isinstance(value, str):
-            return self.words[value]
-        return str(value)
-
     @property
     def prose(self) -> str:
         """The sentences retrieval searches, rendered from the claims."""
         declared = self.claims.model_dump()
         return _PLACEHOLDER.sub(
-            lambda m: self._spoken(declared[m.group(1)]), self.prose_template
+            lambda m: rendered(declared[m.group(1)], self.words, _JOINS[self.locale]),
+            self.prose_template,
         )
 
     @property

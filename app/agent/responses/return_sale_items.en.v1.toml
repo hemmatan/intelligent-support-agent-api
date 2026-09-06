@@ -1,0 +1,10 @@
+fact = "return_sale_items"
+locale = "en"
+version = 1
+approved = true
+
+sentence = "Items marked final sale {final_sale_returnable}."
+
+[words]
+true = "can be sent back on the same terms as anything else"
+false = "cannot be sent back"

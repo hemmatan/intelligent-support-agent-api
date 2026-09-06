@@ -6,6 +6,7 @@ show up as a French message matching in one place and not the other.
 """
 
 import unicodedata
+from collections.abc import Mapping
 
 # A typographic apostrophe and a typed one are the same character to a reader,
 # and "didn't" reporting an unrecognised purchase must not depend on which
@@ -24,3 +25,29 @@ def fold(text: str) -> str:
     decomposed = unicodedata.normalize("NFKD", text.casefold())
     stripped = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
     return stripped.translate(_APOSTROPHES)
+
+
+def rendered(value: object, words: Mapping[str, str], joiner: str) -> str:
+    """One claim value as a particular language writes it.
+
+    Figures print as themselves. Everything named — a token, a choice, a
+    yes-or-no — goes through the wording, because printing it raw puts an
+    internal value in front of somebody: in the searchable text it matches
+    nothing anybody types, and in a reply it is gibberish.
+
+    Shared between the two surfaces on purpose. They read from different
+    wordings, the searchable one and the approved one, and the rule for
+    turning a value into language is the same rule; written twice it would be
+    two rules that agree until one of them is edited.
+    """
+    if isinstance(value, list | tuple):
+        spoken = [rendered(item, words, joiner) for item in value]
+        if len(spoken) < 2:
+            return "".join(spoken)
+        return f"{', '.join(spoken[:-1])} {joiner} {spoken[-1]}"
+    # bool before str and int: True is an int, and "True" is not an answer.
+    if isinstance(value, bool):
+        return words[str(value).lower()]
+    if isinstance(value, str):
+        return words[value]
+    return str(value)

@@ -20,6 +20,7 @@ import re
 import tomllib
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from typing import get_args
 
@@ -33,6 +34,7 @@ from app.agent.knowledge import (
     ReturnPolicyClaims,
     ShippingPolicyClaims,
 )
+from app.agent.text import rendered
 
 DEFAULT_TEMPLATE_DIR = Path(__file__).parent / "responses"
 
@@ -58,6 +60,29 @@ class NothingApprovedToSayError(RuntimeError):
     A gap in the phrase book, not in the evidence. The request waits for
     somebody here rather than being answered in words nobody signed off.
     """
+
+
+# How this language runs a list together, as the searchable prose does.
+_JOINS: dict[str, str] = {"en": "and", "fr": "et"}
+
+
+def _sayable(annotation: object) -> set[str]:
+    """Every value this field can hold that has to be turned into words.
+
+    A figure needs none. A named choice needs one for each option, a yes-or-no
+    for both answers, and a list for every member of the set it draws from —
+    because a template is approved once and has to be able to say whatever the
+    claim turns out to hold.
+    """
+    if annotation is bool:
+        return {"true", "false"}
+    if isinstance(annotation, type) and issubclass(annotation, StrEnum):
+        return {member.value for member in annotation}
+    return {
+        value
+        for argument in get_args(annotation)
+        for value in ([argument] if isinstance(argument, str) else _sayable(argument))
+    }
 
 
 class UnattributedReplyError(ValueError):
@@ -131,8 +156,7 @@ class ResponseTemplate(BaseModel):
             value
             for claims in _STATED_BY.get(self.fact, [])
             for field in named & claims.model_fields.keys()
-            for value in get_args(claims.model_fields[field].annotation)
-            if isinstance(value, str)
+            for value in _sayable(claims.model_fields[field].annotation)
         }
         unsaid = choices - self.words.keys()
         if unsaid:
@@ -173,11 +197,10 @@ class ResponseTemplate(BaseModel):
                 f"does not state"
             )
 
-        def spoken(name: str) -> str:
-            value = values[name]
-            return self.words[value] if isinstance(value, str) else str(value)
-
-        return _PLACEHOLDER.sub(lambda m: spoken(m.group(1)), self.sentence)
+        return _PLACEHOLDER.sub(
+            lambda m: rendered(values[m.group(1)], self.words, _JOINS[self.locale]),
+            self.sentence,
+        )
 
 
 class TemplateLibrary:

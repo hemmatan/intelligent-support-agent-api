@@ -1,0 +1,10 @@
+fact = "proof_of_purchase"
+locale = "en"
+version = 1
+approved = true
+
+sentence = "Proof of purchase {proof_of_purchase_required} when you send something back."
+
+[words]
+true = "is needed"
+false = "is not needed"

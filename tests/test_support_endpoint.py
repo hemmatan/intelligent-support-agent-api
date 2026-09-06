@@ -217,10 +217,24 @@ GOLDEN: list[tuple[str, str, dict[str, str], str, str]] = [
     ),
     (
         "en",
-        "a carve-out the policy states but has no wording for yet",
+        "a carve-out the policy states",
         {"message": "Can I return underwear?"},
-        "internal_review",
-        "nothing_approved_to_say",
+        "direct_response",
+        "return_excluded_categories",
+    ),
+    (
+        "en",
+        "a rule that turns on a yes or no",
+        {"message": "Can I return a final-sale item?"},
+        "direct_response",
+        "return_sale_items",
+    ),
+    (
+        "en",
+        "something the policy still does not say",
+        {"message": "Who pays return shipping?"},
+        "human_escalation",
+        "evidence_does_not_cover_the_question",
     ),
     (
         "en",
@@ -290,7 +304,9 @@ async def test_a_customer_writing_in_gets_the_decision_they_should(
     body = response.json()
     assert body["route"] == route, body
     if route == "direct_response":
-        assert why in body["wording"][0]
+        # An answer can be built from several approved sentences, so the one
+        # this row is about need not be the first.
+        assert any(why in used for used in body["wording"]), body["wording"]
         assert body["reply"]
         assert body["citations"]
     else:

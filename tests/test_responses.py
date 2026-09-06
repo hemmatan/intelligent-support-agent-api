@@ -109,7 +109,7 @@ def test_a_draft_is_not_wording(tmp_path: Path) -> None:
 
 def test_the_shipped_wording_all_loads() -> None:
     library = load_templates()
-    assert len(library) == 6
+    assert len(library) == 12
     for template in library:
         assert template.approved
 
@@ -231,3 +231,60 @@ def test_a_reply_records_the_exact_wording_it_used() -> None:
     )
     template = next(t for t in library if t.reference == "say:return_window.en.v1")
     assert reply.said == (f"say:return_window.en.v1@{template.content_hash}",)
+
+
+def test_a_yes_or_no_reaches_a_customer_as_words() -> None:
+    """A boolean printed raw says "False" to somebody who asked a question.
+
+    It is an int in this language, so it has to be recognised before numbers
+    are, or it prints as one.
+    """
+    library = load_templates()
+    reply = library.say(
+        frozenset({Fact.RETURN_SALE_ITEMS}), entry("returns.standard.en.v1"), "en"
+    )
+    assert "cannot be sent back" in reply.text
+    assert "False" not in reply.text
+
+
+def test_a_list_reaches_a_customer_as_a_sentence() -> None:
+    library = load_templates()
+    for locale, expected in (
+        ("en", "underwear, swimwear and pierced jewellery"),
+        ("fr", "sous-vêtements, maillots de bain et bijoux percés"),
+    ):
+        reply = library.say(
+            frozenset({Fact.RETURN_EXCLUDED_CATEGORIES}),
+            entry(f"returns.standard.{locale}.v1"),
+            locale,  # type: ignore[arg-type]
+        )
+        assert expected in reply.text
+        assert "[" not in reply.text and "_" not in reply.text
+
+
+def test_wording_must_cover_every_answer_a_yes_or_no_can_give() -> None:
+    """Approved once, and then asked to say whatever the claim turns out to
+    hold. Words for one of the two answers is words for half the policies.
+    """
+    with pytest.raises(ValueError, match="no approved words"):
+        ResponseTemplate.model_validate(
+            {
+                **WORDING,
+                "fact": "return_sale_items",
+                "sentence": "Final sale items {final_sale_returnable}.",
+                "words": {"false": "cannot be sent back"},
+            }
+        )
+
+
+def test_wording_must_cover_every_member_of_a_named_set() -> None:
+    """A category added to the policy would otherwise render as its token."""
+    with pytest.raises(ValueError, match="no approved words"):
+        ResponseTemplate.model_validate(
+            {
+                **WORDING,
+                "fact": "return_excluded_categories",
+                "sentence": "Not {excluded_categories}.",
+                "words": {"underwear": "underwear", "swimwear": "swimwear"},
+            }
+        )

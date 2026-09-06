@@ -1,0 +1,10 @@
+fact = "proof_of_purchase"
+locale = "fr"
+version = 1
+approved = true
+
+sentence = "Une preuve d'achat {proof_of_purchase_required} pour tout retour."
+
+[words]
+true = "est exigée"
+false = "n'est pas exigée"
