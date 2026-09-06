@@ -44,19 +44,6 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
     EMBEDDING_TIMEOUT_SECONDS: float = Field(default=10.0, gt=0)
 
-    # Multilingual because the corpus is. A model that only entails in English
-    # would read every French message as saying nothing in particular, which
-    # is indistinguishable from a French message that does.
-    CLASSIFIER_MODEL: str = "MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7"
-    CLASSIFIER_TIMEOUT_SECONDS: float = Field(default=10.0, gt=0)
-    # Reporting trouble that is not there costs somebody a minute of reading.
-    # Missing trouble that is costs considerably more, so this sits low.
-    CLASSIFIER_RISK_THRESHOLD: float = Field(default=0.55, gt=0, lt=1)
-    # Naming an intent decides which sources are read, so it sits higher, and
-    # has to be ahead of the runner-up by more than noise.
-    CLASSIFIER_INTENT_THRESHOLD: float = Field(default=0.70, gt=0, lt=1)
-    CLASSIFIER_INTENT_MARGIN: float = Field(default=0.15, ge=0, lt=1)
-
     # CORS. NoDecode suppresses the JSON pre-parse that pydantic-settings
     # applies to list fields, so the validator below sees the raw string.
     CORS_ORIGINS: Annotated[list[str], NoDecode] = [

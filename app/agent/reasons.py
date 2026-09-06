@@ -77,10 +77,10 @@ class ReviewReason(StrEnum):
 
     SOURCE_UNAVAILABLE = "source_unavailable"
 
-    # The safety pass could not be completed. Not a judgement about the
-    # message: a judgement about how much is known about it, which is less
-    # than the service is willing to answer on.
-    SAFETY_CHECK_UNAVAILABLE = "safety_check_unavailable"
+    # A model was asked to place a message the phrase rules made nothing of,
+    # and could not answer. Not a judgement about the message: a judgement
+    # about how much is known about it.
+    INTENT_CHECK_UNAVAILABLE = "intent_check_unavailable"
 
     # The evidence was good enough and there is no approved way to say it.
     # A gap in the phrase book, which somebody here can close by writing one.

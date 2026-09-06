@@ -99,7 +99,9 @@ class Proceed:
 Triage = Escalate | Clarify | Proceed | Review
 
 
-async def triage(enquiry: Enquiry, *, classifier: IntentClassifier) -> Triage:
+async def triage(
+    enquiry: Enquiry, *, classifier: IntentClassifier | None = None
+) -> Triage:
     """Work out what to do with a message, before doing any of it.
 
     The enquiry carries what the caller already has — an order number, a
@@ -107,22 +109,16 @@ async def triage(enquiry: Enquiry, *, classifier: IntentClassifier) -> Triage:
     profile asking for something absent stops the request here rather than at
     a source that would have been asked for nothing.
 
-    A classifier sees every message the risk rules let through, including the
-    ones the phrase rules understood. Understanding what somebody wants is not
-    the same as noticing they are in trouble: "I need to return this because a
-    stranger used my account" reads as a return, and the rest of the sentence
-    is the part that matters. Recognising the first half was being taken as
-    reason enough not to look at the second.
+    A classifier, where one is configured, is asked only about messages the
+    phrase rules made nothing of. It cannot report danger and it never sees a
+    message the risk rules stopped, so nothing it returns revises a decision
+    already taken.
 
-    What it is trusted with still depends. Risk it reports is acted on
-    whatever the rules found, because it can only ever add. The intent it
-    offers is taken only where the rules recognised nothing, so a model cannot
-    reinterpret a request they already placed.
-
-    It is never consulted about a message the rules escalated: that one has
-    left before it would be asked, which is why nothing it returns can lower a
-    risk. The cost is a call on every message that is not obviously trouble,
-    which is the price of the rules being a fixed vocabulary and people not.
+    None is a supported configuration and the one that ships. A message
+    nothing places is asked about instead of guessed at, which is what the
+    design calls for below a confidence threshold — and, measured, is what
+    the evaluated model would have been doing on four of every six messages
+    it was the only thing left to read.
     """
     risks = risks_in(enquiry.message)
     if risks:
@@ -131,19 +127,13 @@ async def triage(enquiry: Enquiry, *, classifier: IntentClassifier) -> Triage:
     matched = intents_in(enquiry.message)
     intent = next(iter(matched)) if len(matched) == 1 else None
 
-    try:
-        reading = await classifier.classify(enquiry.message, enquiry.locale)
-    except ClassifierUnavailableError:
-        # Less is known about this message than the service answers on, and
-        # nothing about that is the customer's doing.
-        return Review(reason=ReviewReason.SAFETY_CHECK_UNAVAILABLE)
-
-    # Trouble it saw and the rules did not outranks anything it named, and
-    # outranks anything they named too.
-    if reading.risks:
-        return Escalate(reasons=reading.risks)
-    if not matched:
-        intent = reading.intent
+    if not matched and classifier is not None:
+        try:
+            intent = await classifier.classify(enquiry.message, enquiry.locale)
+        except ClassifierUnavailableError:
+            # Less is known about this message than the service answers on,
+            # and nothing about that is the customer's doing.
+            return Review(reason=ReviewReason.INTENT_CHECK_UNAVAILABLE)
 
     if len(matched) > 1:
         return Clarify(reason=ClarificationReason.MULTIPLE_INTENTS)

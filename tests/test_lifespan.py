@@ -7,6 +7,7 @@ import pytest
 
 from app.agent.embedding import EmbeddingMisconfiguredError
 from app.agent.knowledge import PolicyCorpusError, load_corpus
+from app.core.config import settings
 from main import app
 
 
@@ -53,8 +54,17 @@ async def test_startup_builds_a_searchable_index() -> None:
 
 
 @pytest.mark.asyncio
-async def test_without_a_token_the_index_is_lexical_and_the_app_still_starts() -> None:
-    """No embedder configured is a supported deployment, not a broken one."""
+async def test_without_a_token_the_index_is_lexical_and_the_app_still_starts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No embedder configured is a supported deployment, not a broken one.
+
+    The absence is arranged rather than assumed. Reading it off whatever
+    happened to be configured meant the assertion held until somebody put a
+    real token in their .env, and then failed for a reason unconnected to
+    anything this covers.
+    """
+    monkeypatch.setattr(settings, "HUGGINGFACE_API_TOKEN", None)
     async with app.router.lifespan_context(app):
         assert app.state.policy_index.semantic_ready is False
 

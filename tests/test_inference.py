@@ -85,8 +85,13 @@ async def test_a_timeout_is_unavailability_not_a_crash() -> None:
 
 def test_an_unconfigured_token_is_refused_at_construction() -> None:
     """Not at the first search, when a customer is waiting."""
+    unconfigured = Settings(_env_file=None)  # type: ignore[call-arg]
+    # Nothing in the ambient environment decides what this test asserts. It
+    # passed everywhere until somebody exported a real token, and then failed
+    # for a reason that had nothing to do with the code under test.
+    unconfigured = unconfigured.model_copy(update={"HUGGINGFACE_API_TOKEN": None})
     with pytest.raises(ValueError, match="HUGGINGFACE_API_TOKEN"):
-        HuggingFaceEmbedder(Settings(_env_file=None))  # type: ignore[call-arg]
+        HuggingFaceEmbedder(unconfigured)
 
 
 @pytest.mark.skipif(

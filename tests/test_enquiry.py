@@ -3,14 +3,9 @@
 import pytest
 
 from app.agent.enquiry import MAX_MESSAGE, Enquiry, NotSomethingToActOnError
-from app.agent.intent import Classification, Intent
+from app.agent.intent import Intent
 from app.agent.profiles import Input
 from app.agent.triage import Proceed, triage
-
-
-class Silent:
-    async def classify(self, message: str, locale: str) -> Classification:
-        return Classification()
 
 
 def test_which_inputs_are_to_hand_is_read_off_the_values() -> None:
@@ -33,8 +28,7 @@ async def test_the_value_survives_as_far_as_the_lookup_that_needs_it() -> None:
     is a second reading that can differ from the one this was decided on.
     """
     placed = await triage(
-        Enquiry(message="Where is my order?", customer=7, order="ORD-4471"),
-        classifier=Silent(),
+        Enquiry(message="Where is my order?", customer=7, order="ORD-4471")
     )
     assert isinstance(placed, Proceed)
     assert placed.intent is Intent.ORDER_STATUS

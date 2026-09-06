@@ -65,11 +65,30 @@ _CATEGORIES = (
             "card was stolen",
             "card is stolen",
             "card stolen",
+            # Somebody else spending on this account, described without any of
+            # the words above. A model was tried for this and rated an
+            # ordinary returns question a legal threat above a real one, so
+            # the wording is listed instead of inferred.
+            "stranger made purchases",
+            "stranger used my",
+            "someone else used my",
+            "someone used my card",
+            "someone used my account",
+            "somebody else used my",
+            "purchases i did not make",
+            "purchases i didn't make",
+            "charges i did not make",
+            "charges i didn't make",
+            "bought things i never",
+            "ordered things i never",
             "fraude",
             "frauduleux",
             "carte volee",
             "pas commande",
             "n'ai pas commande",
+            "quelqu'un a utilise ma carte",
+            "quelqu'un a utilise mon compte",
+            "achats que je n'ai pas",
         ),
     ),
     _Category(

@@ -15,12 +15,10 @@ where one is not. Neither is a guess.
 """
 
 from collections.abc import Sequence
-from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Protocol, runtime_checkable
 
 from app.agent.knowledge import Locale
-from app.agent.reasons import RiskReason
 from app.agent.text import fold
 
 
@@ -137,63 +135,38 @@ _RULES: dict[Intent, Sequence[str]] = {
 }
 
 
-class ClassifierError(RuntimeError):
-    """The classifier could not answer."""
-
-
-class ClassifierUnavailableError(ClassifierError):
-    """The safety pass could not be completed this time.
+class ClassifierUnavailableError(RuntimeError):
+    """A model was asked to place a message and could not.
 
     Transient by definition: a timeout, a refused connection, a provider
     having a bad afternoon. Implementations raise this rather than letting a
-    transport error out, because the request has to be able to tell "nothing
-    looked wrong" apart from "nobody looked".
+    transport error out, so a request can tell "nothing was recognised" apart
+    from "nobody looked".
     """
-
-
-class ClassifierMisconfiguredError(ClassifierError):
-    """The safety pass will not be completed on any request.
-
-    A refused token, a model nobody can reach. Retrying does not fix a typo,
-    and a deployment that treats one as weather quietly sends every message
-    to review — or, worse, is read as having looked.
-    """
-
-
-@dataclass(frozen=True)
-class Classification:
-    """What a model made of a message.
-
-    Both fields are answers, and an empty one means the model looked and found
-    nothing — not that it was never asked. No intent leaves the message
-    unplaced unless the rules placed it; no risks leaves the rules' verdict
-    standing.
-    """
-
-    intent: Intent | None = None
-    risks: frozenset[RiskReason] = field(default_factory=frozenset)
 
 
 @runtime_checkable
 class IntentClassifier(Protocol):
-    """A model shown every message the risk rules let through.
+    """A model asked about a message the phrase rules made nothing of.
 
-    That includes messages the phrases understood, because understanding what
-    somebody wants is a different job from noticing they are in trouble, and
-    only the second is still open once a phrase has matched.
+    It cannot report danger, and that is a finding rather than a simplification.
+    The model evaluated for the job scored an ordinary returns question as a
+    legal threat more strongly than a real threat, and a question about staying
+    safe from fraud above a genuine fraud report. Risk is the deterministic
+    rules' alone; the measurements are in docs/architecture.md.
 
-    What it is trusted with differs by kind. Danger it reports is acted on
-    whatever the rules concluded, since that can only move a request further
-    towards a person. An intent it offers counts only where the phrases found
-    none, so it cannot revisit a decision they reached.
+    It is never shown a message those rules escalated, or one the phrase rules
+    placed, so nothing it returns can revise a decision already taken. Where it
+    cannot answer it raises, and the request waits for somebody here instead of
+    being guessed at.
 
-    It has no way to say a message is fine: nothing it returns lowers a risk,
-    and it is never shown a message the rules escalated. Where it cannot
-    answer at all it raises, and the request waits for somebody here.
+    Nothing implements this today. It is the shape a model would have to take
+    to be admitted, kept because leaving it empty was decided rather than
+    overlooked.
     """
 
-    async def classify(self, message: str, locale: Locale) -> Classification:
-        """Read a message, or raise ClassifierUnavailableError trying."""
+    async def classify(self, message: str, locale: Locale) -> Intent | None:
+        """Name an intent, return None, or raise ClassifierUnavailableError."""
         ...
 
 
