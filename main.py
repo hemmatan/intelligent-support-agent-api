@@ -7,14 +7,19 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.agent.answering import Sources
 from app.agent.embedding import Embedder
 from app.agent.inference import HuggingFaceEmbedder
 from app.agent.knowledge import load_corpus
+from app.agent.messages import load_messages
+from app.agent.responses import load_templates
 from app.agent.retrieval import PolicyIndex
 from app.api.auth import router as auth_router
 from app.api.health import router as health_router
+from app.api.support import router as support_router
 from app.core.config import settings
 from app.db.session import sessionmanager
+from app.services.support import SupportAgent
 
 
 @asynccontextmanager
@@ -36,6 +41,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # lexical, which is a worse service rather than no service.
     await index.warm()
     app.state.policy_index = index
+
+    # Wording is parsed and checked here for the reason the corpus is: a
+    # sentence naming a claim nothing states, or a reason nothing can say,
+    # should stop the process while nobody is waiting on a reply.
+    app.state.support = SupportAgent(
+        sources=Sources(knowledge_base=index),
+        templates=load_templates(),
+        messages=load_messages(),
+    )
 
     yield
     if sessionmanager._engine is not None:
@@ -74,6 +88,9 @@ app.add_middleware(
 app.include_router(health_router, tags=["system"])
 app.include_router(
     auth_router, prefix=f"{settings.API_V1_PREFIX}/auth", tags=["authentication"]
+)
+app.include_router(
+    support_router, prefix=f"{settings.API_V1_PREFIX}/support", tags=["support"]
 )
 
 if __name__ == "__main__":
