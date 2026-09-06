@@ -381,11 +381,15 @@ It owns the working directory so the local SQLite default can create its
 database; dependencies and application files remain root-owned and read-only
 to the process.
 
-The setup is not suitable for production as it stands. The image has no health
-check, and `docker-compose.yml` bind-mounts the source tree. Known work before a
-production deployment:
+Docker probes `/health` from inside the container every 30 seconds, after a
+10-second startup grace period. The probe uses Python's standard library, so
+the image does not carry a separate HTTP client solely for health checks.
 
-- A container health check and graceful shutdown handling.
+The setup is not suitable for production as it stands. `docker-compose.yml`
+bind-mounts the source tree, and the startup wrapper does not yet hand process
+control directly to Uvicorn. Known work before a production deployment:
+
+- Direct signal delivery to Uvicorn during graceful container shutdown.
 - PostgreSQL with persistent storage and migrations run as a one-shot service.
 - A production Compose file without source-code bind mounts.
 
