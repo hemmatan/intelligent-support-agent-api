@@ -20,7 +20,7 @@ from enum import StrEnum
 from typing import Protocol, runtime_checkable
 
 from app.agent.knowledge import Locale
-from app.agent.reasons import EscalationReason
+from app.agent.reasons import RiskReason
 from app.agent.text import fold
 
 
@@ -158,7 +158,7 @@ class Classification:
     """
 
     intent: Intent | None = None
-    risks: frozenset[EscalationReason] = field(default_factory=frozenset)
+    risks: frozenset[RiskReason] = field(default_factory=frozenset)
 
 
 @runtime_checkable

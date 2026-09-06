@@ -16,7 +16,12 @@ from app.agent.facts import Fact, coverage_of, facts_in
 from app.agent.intent import Intent
 from app.agent.knowledge import Locale
 from app.agent.profiles import DecisionProfile, Source
-from app.agent.reasons import EscalationReason, EvidenceReason, ReviewReason
+from app.agent.reasons import (
+    BlockedReason,
+    EscalationReason,
+    EvidenceReason,
+    ReviewReason,
+)
 from app.agent.reliability import Assessment, Factor, ReliabilityLevel, Route
 from app.agent.retrieval import Hit, PolicyIndex, relevance_of
 from app.agent.triage import Proceed, Review, UnexplainedEscalationError
@@ -165,7 +170,7 @@ async def plan_for(proceed: Proceed, *, sources: Sources) -> Outcome:
 
     hits = await sources.search(proceed.message, proceed.locale)
     if not hits:
-        return Handover(reasons=frozenset({EscalationReason.NO_SUPPORTING_EVIDENCE}))
+        return Handover(reasons=frozenset({BlockedReason.NO_SUPPORTING_EVIDENCE}))
 
     best = hits[0]
     citations = (

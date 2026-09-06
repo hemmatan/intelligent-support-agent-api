@@ -18,8 +18,14 @@ nothing separate can contradict it.
 from enum import StrEnum
 
 
-class EscalationReason(StrEnum):
-    """Why a person is handling this instead of the service.
+class RiskReason(StrEnum):
+    """Danger a message reports, whoever noticed it.
+
+    Separate from the rest because this is the only kind a model may raise.
+    Reading a sentence is something it can do. Whether a customer is on file,
+    or whether retrieval found anything, are facts about our systems that it
+    has not been shown and could only be guessing at — and a guess here is one
+    that walks straight into an escalation queue.
 
     Values are stable: they outlive the code that produces them.
     """
@@ -28,6 +34,14 @@ class EscalationReason(StrEnum):
     SUSPECTED_FRAUD = "suspected_fraud"
     ACCOUNT_COMPROMISE = "account_compromise"
     LEGAL_THREAT = "legal_threat"
+
+
+class BlockedReason(StrEnum):
+    """Nothing is wrong with the customer; this cannot be served here.
+
+    Established by looking, never by reading. Each is something the service
+    checked and found wanting about its own position.
+    """
 
     # Not a report of trouble, but equally not something to ask about: a
     # customer who is not linked to any commerce record cannot supply the
@@ -38,6 +52,10 @@ class EscalationReason(StrEnum):
     # finding: a policy question with no supporting entry is not a weak
     # answer to be softened, it is an answer nobody here can give.
     NO_SUPPORTING_EVIDENCE = "no_supporting_evidence"
+
+
+EscalationReason = RiskReason | BlockedReason
+"""Why a person is handling this instead of the service."""
 
 
 class ClarificationReason(StrEnum):

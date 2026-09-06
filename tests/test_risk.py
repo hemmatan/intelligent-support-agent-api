@@ -2,25 +2,25 @@
 
 import pytest
 
-from app.agent.reasons import EscalationReason
+from app.agent.reasons import RiskReason
 from app.agent.risk import risks_in
 
 
 @pytest.mark.parametrize(
     ("message", "expected"),
     [
-        ("I was charged twice for the same order", EscalationReason.PAYMENT_DISPUTE),
-        ("This transaction is fraudulent", EscalationReason.SUSPECTED_FRAUD),
-        ("Someone broke into my account", EscalationReason.ACCOUNT_COMPROMISE),
-        ("My lawyer will be in touch", EscalationReason.LEGAL_THREAT),
-        ("J'ai ete debite deux fois", EscalationReason.PAYMENT_DISPUTE),
-        ("J'ai été débité deux fois", EscalationReason.PAYMENT_DISPUTE),
-        ("Mon compte a été piraté", EscalationReason.ACCOUNT_COMPROMISE),
-        ("Je n'ai pas commandé cet article", EscalationReason.SUSPECTED_FRAUD),
+        ("I was charged twice for the same order", RiskReason.PAYMENT_DISPUTE),
+        ("This transaction is fraudulent", RiskReason.SUSPECTED_FRAUD),
+        ("Someone broke into my account", RiskReason.ACCOUNT_COMPROMISE),
+        ("My lawyer will be in touch", RiskReason.LEGAL_THREAT),
+        ("J'ai ete debite deux fois", RiskReason.PAYMENT_DISPUTE),
+        ("J'ai été débité deux fois", RiskReason.PAYMENT_DISPUTE),
+        ("Mon compte a été piraté", RiskReason.ACCOUNT_COMPROMISE),
+        ("Je n'ai pas commandé cet article", RiskReason.SUSPECTED_FRAUD),
     ],
     ids=lambda value: value if isinstance(value, str) else "",
 )
-def test_reports_reach_a_person(message: str, expected: EscalationReason) -> None:
+def test_reports_reach_a_person(message: str, expected: RiskReason) -> None:
     assert expected in risks_in(message)
 
 
@@ -52,7 +52,7 @@ def test_asking_about_policy_is_not_reporting_an_incident(message: str) -> None:
 )
 def test_a_general_question_cannot_excuse_a_report_beside_it(message: str) -> None:
     """Splitting on punctuation is not enough: the second has no full stop."""
-    assert risks_in(message) == {EscalationReason.ACCOUNT_COMPROMISE}
+    assert risks_in(message) == {RiskReason.ACCOUNT_COMPROMISE}
 
 
 @pytest.mark.parametrize(
@@ -66,7 +66,7 @@ def test_a_general_question_cannot_excuse_a_report_beside_it(message: str) -> No
 )
 def test_a_contraction_reports_as_clearly_as_the_long_form(message: str) -> None:
     """Which apostrophe a keyboard produced is not a fact about the message."""
-    assert EscalationReason.SUSPECTED_FRAUD in risks_in(message)
+    assert RiskReason.SUSPECTED_FRAUD in risks_in(message)
 
 
 @pytest.mark.parametrize(
@@ -84,28 +84,26 @@ def test_words_that_only_sound_like_trouble(message: str) -> None:
 
 
 def test_somebody_else_changing_the_password_is_different() -> None:
-    assert EscalationReason.ACCOUNT_COMPROMISE in risks_in(
-        "Someone changed my password"
-    )
+    assert RiskReason.ACCOUNT_COMPROMISE in risks_in("Someone changed my password")
 
 
 def test_one_message_can_report_more_than_one_kind_of_trouble() -> None:
     """Keeping only the first would lose half of what was said."""
     assert risks_in("Someone hacked my account and used my card fraudulently") == {
-        EscalationReason.ACCOUNT_COMPROMISE,
-        EscalationReason.SUSPECTED_FRAUD,
+        RiskReason.ACCOUNT_COMPROMISE,
+        RiskReason.SUSPECTED_FRAUD,
     }
 
 
 def test_reporting_something_you_want_to_report_still_counts() -> None:
     """Phrased as a question, but the person asking has fraud to report."""
-    assert EscalationReason.SUSPECTED_FRAUD in risks_in(
+    assert RiskReason.SUSPECTED_FRAUD in risks_in(
         "How do I report a fraudulent charge?"
     )
 
 
 def test_hedging_is_not_absence() -> None:
-    assert EscalationReason.PAYMENT_DISPUTE in risks_in(
+    assert RiskReason.PAYMENT_DISPUTE in risks_in(
         "I think I might have been charged twice"
     )
 
@@ -116,7 +114,7 @@ def test_a_report_about_someone_else_still_reaches_a_person() -> None:
     The reply telling them their friend has to write in themselves is a
     response concern; the routing is the same either way.
     """
-    assert EscalationReason.PAYMENT_DISPUTE in risks_in("My friend was charged twice")
+    assert RiskReason.PAYMENT_DISPUTE in risks_in("My friend was charged twice")
 
 
 @pytest.mark.parametrize(

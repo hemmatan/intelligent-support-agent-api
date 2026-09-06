@@ -17,7 +17,7 @@ from app.agent.facts import Fact
 from app.agent.intent import Intent
 from app.agent.knowledge import load_corpus
 from app.agent.profiles import Source, profile_for
-from app.agent.reasons import EscalationReason, EvidenceReason, ReviewReason
+from app.agent.reasons import BlockedReason, EvidenceReason, ReviewReason
 from app.agent.reliability import Assessment, Factor, ReliabilityLevel, Route
 from app.agent.retrieval import PolicyIndex
 from app.agent.triage import Proceed, UnexplainedEscalationError
@@ -106,7 +106,7 @@ async def test_nothing_found_is_a_gate_and_not_a_low_score(sources: Sources) -> 
         sources=sources,
     )
     assert outcome == Handover(
-        reasons=frozenset({EscalationReason.NO_SUPPORTING_EVIDENCE})
+        reasons=frozenset({BlockedReason.NO_SUPPORTING_EVIDENCE})
     )
 
 

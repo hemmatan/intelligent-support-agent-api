@@ -13,7 +13,12 @@ from app.agent.intent import (
 )
 from app.agent.knowledge import Locale
 from app.agent.profiles import Input, Source, profile_for
-from app.agent.reasons import ClarificationReason, EscalationReason, ReviewReason
+from app.agent.reasons import (
+    BlockedReason,
+    ClarificationReason,
+    ReviewReason,
+    RiskReason,
+)
 from app.agent.risk import risks_in
 from app.agent.triage import (
     Clarify,
@@ -59,7 +64,7 @@ class Insists:
     def __init__(
         self,
         answer: Intent | None,
-        risks: frozenset[EscalationReason] = frozenset(),
+        risks: frozenset[RiskReason] = frozenset(),
     ):
         self.answer = answer
         self.risks = risks
@@ -74,7 +79,7 @@ class Insists:
 async def test_a_report_of_trouble_reaches_a_person_before_anything_else_runs() -> None:
     """The classifier raises if consulted. It is not consulted."""
     outcome = await triage("I was charged twice", classifier=MustNotBeAsked())
-    assert outcome == Escalate(reasons=frozenset({EscalationReason.PAYMENT_DISPUTE}))
+    assert outcome == Escalate(reasons=frozenset({RiskReason.PAYMENT_DISPUTE}))
 
 
 @pytest.mark.asyncio
@@ -83,9 +88,7 @@ async def test_every_kind_of_trouble_in_the_message_is_carried_forward() -> None
         "Someone hacked my account and used my card fraudulently", classifier=SILENT
     )
     assert outcome == Escalate(
-        reasons=frozenset(
-            {EscalationReason.ACCOUNT_COMPROMISE, EscalationReason.SUSPECTED_FRAUD}
-        )
+        reasons=frozenset({RiskReason.ACCOUNT_COMPROMISE, RiskReason.SUSPECTED_FRAUD})
     )
 
 
@@ -158,18 +161,14 @@ async def test_an_unlinked_customer_goes_to_a_person() -> None:
     outcome = await triage(
         "Where is my order?", known=frozenset({Input.ORDER_ID}), classifier=SILENT
     )
-    assert outcome == Escalate(
-        reasons=frozenset({EscalationReason.CUSTOMER_NOT_LINKED})
-    )
+    assert outcome == Escalate(reasons=frozenset({BlockedReason.CUSTOMER_NOT_LINKED}))
 
 
 @pytest.mark.asyncio
 async def test_the_more_serious_absence_decides() -> None:
     """Both missing. Asking for an order number would not have helped."""
     outcome = await triage("Where is my order?", known=frozenset(), classifier=SILENT)
-    assert outcome == Escalate(
-        reasons=frozenset({EscalationReason.CUSTOMER_NOT_LINKED})
-    )
+    assert outcome == Escalate(reasons=frozenset({BlockedReason.CUSTOMER_NOT_LINKED}))
 
 
 @pytest.mark.asyncio
@@ -259,17 +258,15 @@ def test_a_plan_cannot_be_given_a_profile_belonging_to_something_else() -> None:
 @pytest.mark.asyncio
 async def test_a_model_may_name_trouble_the_phrases_did_not() -> None:
     """A fixed vocabulary misses however people actually describe things."""
-    unusual = Insists(None, frozenset({EscalationReason.SUSPECTED_FRAUD}))
+    unusual = Insists(None, frozenset({RiskReason.SUSPECTED_FRAUD}))
     outcome = await triage("Something odd happened with my account", classifier=unusual)
-    assert outcome == Escalate(reasons=frozenset({EscalationReason.SUSPECTED_FRAUD}))
+    assert outcome == Escalate(reasons=frozenset({RiskReason.SUSPECTED_FRAUD}))
 
 
 @pytest.mark.asyncio
 async def test_trouble_it_reports_outranks_the_intent_it_reports_beside_it() -> None:
     """Answering the question would be answering somebody being defrauded."""
-    both = Insists(
-        Intent.RETURN_POLICY, frozenset({EscalationReason.ACCOUNT_COMPROMISE})
-    )
+    both = Insists(Intent.RETURN_POLICY, frozenset({RiskReason.ACCOUNT_COMPROMISE}))
     outcome = await triage("I need help with my purchase", classifier=both)
     assert isinstance(outcome, Escalate)
 
@@ -283,7 +280,7 @@ async def test_a_model_has_no_way_to_say_a_message_is_fine() -> None:
     """
     quiet = Insists(None)
     outcome = await triage("I was charged twice", classifier=quiet)
-    assert outcome == Escalate(reasons=frozenset({EscalationReason.PAYMENT_DISPUTE}))
+    assert outcome == Escalate(reasons=frozenset({RiskReason.PAYMENT_DISPUTE}))
     assert quiet.seen == []
 
 
@@ -299,9 +296,9 @@ async def test_trouble_inside_an_ordinary_request_still_reaches_a_person() -> No
     assert risks_in(message) == frozenset()
     assert intents_in(message) == {Intent.RETURN_POLICY}
 
-    watchful = Insists(None, frozenset({EscalationReason.ACCOUNT_COMPROMISE}))
+    watchful = Insists(None, frozenset({RiskReason.ACCOUNT_COMPROMISE}))
     outcome = await triage(message, classifier=watchful)
-    assert outcome == Escalate(reasons=frozenset({EscalationReason.ACCOUNT_COMPROMISE}))
+    assert outcome == Escalate(reasons=frozenset({RiskReason.ACCOUNT_COMPROMISE}))
 
 
 @pytest.mark.asyncio
@@ -312,7 +309,7 @@ async def test_a_message_the_rules_escalated_is_shown_to_nobody() -> None:
     one, which is what makes always asking safe rather than merely useful.
     """
     outcome = await triage("I was charged twice", classifier=MustNotBeAsked())
-    assert outcome == Escalate(reasons=frozenset({EscalationReason.PAYMENT_DISPUTE}))
+    assert outcome == Escalate(reasons=frozenset({RiskReason.PAYMENT_DISPUTE}))
 
 
 class Down:
@@ -338,7 +335,7 @@ async def test_a_message_nobody_could_read_is_not_a_message_found_safe() -> None
 async def test_danger_the_rules_saw_survives_the_model_being_down() -> None:
     """It left before the call, so the call failing changes nothing."""
     outcome = await triage("I was charged twice", classifier=Down())
-    assert outcome == Escalate(reasons=frozenset({EscalationReason.PAYMENT_DISPUTE}))
+    assert outcome == Escalate(reasons=frozenset({RiskReason.PAYMENT_DISPUTE}))
 
 
 def test_there_is_no_way_to_run_triage_without_a_safety_pass() -> None:

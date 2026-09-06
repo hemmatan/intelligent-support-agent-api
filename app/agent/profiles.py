@@ -16,7 +16,11 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from app.agent.intent import Intent
-from app.agent.reasons import ClarificationReason, EscalationReason
+from app.agent.reasons import (
+    BlockedReason,
+    ClarificationReason,
+    EscalationReason,
+)
 from app.agent.reliability import Factor, ReliabilityLevel, Route
 
 
@@ -66,7 +70,7 @@ class Input(StrEnum):
 
 _REASONS: dict["Input", EscalationReason | ClarificationReason] = {
     Input.ORDER_ID: ClarificationReason.MISSING_ORDER_ID,
-    Input.COMMERCE_ACCOUNT: EscalationReason.CUSTOMER_NOT_LINKED,
+    Input.COMMERCE_ACCOUNT: BlockedReason.CUSTOMER_NOT_LINKED,
     Input.PRODUCT_REFERENCE: ClarificationReason.MISSING_PRODUCT_REFERENCE,
 }
 

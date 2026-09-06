@@ -11,7 +11,14 @@ from app.agent.profiles import (
     Source,
     profile_for,
 )
-from app.agent.reasons import ClarificationReason, EscalationReason
+from app.agent.reasons import (
+    BlockedReason,
+    ClarificationReason,
+    EscalationReason,
+    EvidenceReason,
+    ReviewReason,
+    RiskReason,
+)
 from app.agent.reliability import Assessment, Factor, ReliabilityLevel, Route
 
 
@@ -61,7 +68,7 @@ def test_a_missing_order_number_and_a_missing_account_go_different_ways() -> Non
     assert Input.ORDER_ID.when_missing is Route.CLARIFICATION
     assert Input.ORDER_ID.reason is ClarificationReason.MISSING_ORDER_ID
     assert Input.COMMERCE_ACCOUNT.when_missing is Route.HUMAN_ESCALATION
-    assert Input.COMMERCE_ACCOUNT.reason is EscalationReason.CUSTOMER_NOT_LINKED
+    assert Input.COMMERCE_ACCOUNT.reason is BlockedReason.CUSTOMER_NOT_LINKED
 
 
 def test_an_input_decides_its_own_consequence() -> None:
@@ -187,12 +194,25 @@ def test_a_source_this_request_never_chose_carries_nothing() -> None:
     assert policy.authority_of(Source.COMMERCE) is ReliabilityLevel.UNUSABLE
 
 
-def test_no_reason_answers_to_both_destinations() -> None:
-    """The split is only worth anything while it is a partition.
+def test_no_reason_answers_to_two_destinations() -> None:
+    """The split is only worth anything while it stays a partition.
 
-    A code listed under both would let the type say where a request went while
-    the value said nothing.
+    A value listed under two of these would let the type say where a request
+    went while the value said nothing, which is the arrangement all of this
+    replaced. Every family is checked against every other, so a code copied
+    between two of them cannot pass by being in the pair nobody compared.
     """
-    escalations = {reason.value for reason in EscalationReason}
-    clarifications = {reason.value for reason in ClarificationReason}
-    assert not escalations & clarifications
+    families = [
+        RiskReason,
+        BlockedReason,
+        ClarificationReason,
+        ReviewReason,
+        EvidenceReason,
+    ]
+    seen: dict[str, str] = {}
+    for family in families:
+        for reason in family:
+            assert reason.value not in seen, (
+                f"{reason.value} is in {family.__name__} and {seen.get(reason.value)}"
+            )
+            seen[reason.value] = family.__name__
