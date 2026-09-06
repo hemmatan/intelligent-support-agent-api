@@ -62,13 +62,18 @@ class DatabaseCases:
                 user_id=customer,
                 message=enquiry.message,
                 locale=enquiry.locale,
+                order_id=enquiry.order,
+                product_reference=enquiry.product,
+                external_customer_id=enquiry.customer,
                 route=str(reply.route),
                 # A clarification carries one; everything else carries a list.
                 reasons=stated.get("reasons") or [stated["reason"]]
                 if not answered
                 else [],
                 intent=stated.get("intent"),
-                reply=stated.get("reply"),
+                # Whichever field carried the words: an answer has a reply,
+                # everything else has a message, and every outcome sends one.
+                sent=stated["reply"] if answered else stated["message"],
                 citations=stated.get("citations") or [],
                 # Kept as sent. Approved sentences get edited, and this has to
                 # say what went out rather than what would go out today.

@@ -470,7 +470,8 @@ async def test_saying_it_reached_a_person_means_it_reached_the_queue(
     assert case.route == "human_escalation"
     assert case.reasons == ["payment_dispute"]
     assert case.message == "I was charged twice"
-    assert case.reply is None
+    # The words that reached them, not just the reference to the wording.
+    assert case.sent == body["message"]
     assert case.wording == [body["wording"]]
     # Open, which is what makes this a queue and not a log.
     assert case.closed_at is None
@@ -502,7 +503,7 @@ async def test_an_answer_that_went_out_is_written_down_too(
     ).scalar_one()
     assert case.route == "direct_response"
     assert case.intent == "return_policy"
-    assert case.reply == body["reply"]
+    assert case.sent == body["reply"]
     assert case.citations[0]["reference"] == "kb:returns.standard.en.v1"
     assert case.wording == body["wording"]
     assert case.reliability is not None
@@ -564,3 +565,38 @@ async def test_a_record_that_cannot_be_written_is_not_answered_around(
         await agent.answer(
             Enquiry(message="I was charged twice"), cases=Broken(), customer=1
         )
+
+
+@pytest.mark.asyncio
+async def test_a_case_keeps_what_the_customer_gave_us(
+    async_client: AsyncClient,
+    wired: None,
+    signed_in: Callable[..., object],
+    session: AsyncSession,
+) -> None:
+    """Somebody picking this up needs the order number, not the fact of one.
+
+    The enquiry was built to carry values rather than markers, and the record
+    then dropped them at the last step — so a colleague reading the case would
+    have had to go back to the customer for something already supplied.
+    """
+    headers = await signed_in()  # type: ignore[misc]
+    response = await async_client.post(
+        MESSAGES,
+        json={
+            "message": "I was charged twice for order ORD-4471",
+            "order_id": "ORD-4471",
+            "product_reference": "SKU-9",
+        },
+        headers=headers,
+    )
+    body = response.json()
+    case = (
+        await session.execute(
+            select(SupportCase).where(SupportCase.reference == body["case"])
+        )
+    ).scalar_one()
+    assert case.order_id == "ORD-4471"
+    assert case.product_reference == "SKU-9"
+    assert case.external_customer_id is not None
+    assert case.sent == body["message"]

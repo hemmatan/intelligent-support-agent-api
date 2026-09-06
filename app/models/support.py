@@ -41,14 +41,22 @@ class SupportCase(Base):
     message: Mapped[str] = mapped_column(Text, nullable=False)
     locale: Mapped[str] = mapped_column(String(5), nullable=False)
 
+    # What the customer gave us, kept rather than counted. Somebody picking
+    # this up needs the order number, not the knowledge that one was supplied,
+    # and going back to the customer for it is the whole thing this avoids.
+    order_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    product_reference: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    external_customer_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     route: Mapped[str] = mapped_column(String(32), nullable=False)
     reasons: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     intent: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
-    # What the customer received, and everything it was assembled from. Kept
-    # verbatim rather than rebuilt on demand: approved wording gets edited,
-    # and the record has to say what was sent, not what would be sent now.
-    reply: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The words that reached them, whichever of the four outcomes it was.
+    # Kept verbatim rather than rebuilt from the reference on demand, because
+    # approved wording gets edited and the record has to say what was sent,
+    # not what would be sent today.
+    sent: Mapped[str] = mapped_column(Text, nullable=False)
     citations: Mapped[list[dict[str, Any]]] = mapped_column(
         JSON, nullable=False, default=list
     )
@@ -58,12 +66,18 @@ class SupportCase(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
-    # Null while somebody still has to look at it, which is what makes this
-    # table a queue rather than a log.
+    # Who has it, and what they did. Null assignment means nobody has picked
+    # it up; null closure means it is still outstanding, which is what makes
+    # this table a queue rather than a log.
+    assigned_to: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     closed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    resolution: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    user: Mapped[User] = relationship()
+    user: Mapped[User] = relationship(foreign_keys=[user_id])
+    agent: Mapped[User | None] = relationship(foreign_keys=[assigned_to])
 
     __table_args__ = (Index("ix_support_cases_open", "route", "closed_at"),)
