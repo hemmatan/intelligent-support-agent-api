@@ -40,6 +40,16 @@ class Fact(StrEnum):
     SHIPPING_DESTINATIONS = "shipping_destinations"
     SHIPPING_COST = "shipping_cost"
 
+    # Settled by the shop's own records rather than by anything written down.
+    # A policy says how long delivery usually takes; only the order says where
+    # this parcel is, and the two questions are asked in almost the same words.
+    ORDER_STATE = "order_state"
+    DELIVERY_ESTIMATE = "delivery_estimate"
+    TRACKING_REFERENCE = "tracking_reference"
+    REFUND_STATE = "refund_state"
+    REFUND_AMOUNT = "refund_amount"
+    STOCK_AVAILABILITY = "stock_availability"
+
 
 # Phrases again rather than words, for the reason they are phrases in intent
 # detection: "cost" and "return" belong to several of these at once and settle
@@ -175,6 +185,62 @@ _RULES: dict[Fact, Sequence[str]] = {
         "free delivery",
         "frais de livraison",
         "frais de port",
+    ),
+    # Below here the answer is in the shop's records. Kept to whole requests
+    # for the reason everything else here is: "available" and "refund" belong
+    # to several of these at once and settle none of them by themselves.
+    Fact.ORDER_STATE: (
+        "where is my order",
+        "where's my order",
+        "where has my order got to",
+        "status of my order",
+        "my order status",
+        "has my order shipped",
+        "has my order been dispatched",
+        "ou est ma commande",
+        "statut de ma commande",
+    ),
+    Fact.DELIVERY_ESTIMATE: (
+        "when will my order arrive",
+        "when will my parcel arrive",
+        "when will it arrive",
+        "when will i receive my order",
+        "when will i receive my parcel",
+        "quand vais-je recevoir ma commande",
+        "quand ma commande arrivera",
+        "quand arrivera ma commande",
+    ),
+    Fact.TRACKING_REFERENCE: (
+        "tracking number",
+        "tracking reference",
+        "track my order",
+        "track my parcel",
+        "numero de suivi",
+        "suivre ma commande",
+    ),
+    Fact.REFUND_STATE: (
+        "where is my refund",
+        "where's my refund",
+        "status of my refund",
+        "have i been refunded",
+        "has my refund been processed",
+        "ou est mon remboursement",
+        "statut de mon remboursement",
+    ),
+    Fact.REFUND_AMOUNT: (
+        "how much will i get back",
+        "how much was refunded",
+        "how much am i getting back",
+        "combien vais-je recevoir",
+        "montant du remboursement",
+    ),
+    Fact.STOCK_AVAILABILITY: (
+        "in stock",
+        "back in stock",
+        "still available",
+        "en stock",
+        "encore disponible",
+        "toujours disponible",
     ),
 }
 
