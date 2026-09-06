@@ -245,10 +245,17 @@ with their message is true.
 - `POST /api/v1/support/cases/{reference}/claim` - Put your name against one
 - `POST /api/v1/support/cases/{reference}/resolve` - Close it, recording what was done
 
-A case carries everything the decision rested on — the message, the order
-number and product reference the customer supplied, the route and reasons, the
-words they received, the evidence cited and the rating each dimension earned —
-so nobody has to write back for something already given. Answered requests do
+A case carries what the decision rested on — the message, the order number and
+product reference the customer supplied, the sources the request was permitted
+to read, the route and reasons, the words they received, the evidence cited and
+the rating each dimension earned — so nobody has to write back for something
+already given.
+
+Claiming and resolving are conditional writes, so two people cannot both be
+told a case is theirs. Who took it on and who finished it are recorded
+separately: covering a colleague's shift should credit the person who did the
+work. What happens after that — drafting, editing, replying to the customer —
+is outside this API. Answered requests do
 not appear: they are records, not work. Resolving twice is refused, because the
 second note would replace the account of whoever did it.
 

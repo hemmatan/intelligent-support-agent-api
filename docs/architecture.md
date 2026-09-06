@@ -73,9 +73,9 @@ flowchart TD
     LVL -->|REVIEW_ONLY| REV
     LVL -->|UNUSABLE| ESC
 
-    REV --> STAFF{Staff decision<br/>claimed and resolved through the API}
-    STAFF -->|approve or edit| TPL
-    STAFF -->|reject| ESC
+    REV --> STAFF[Staff queue<br/>claimed and resolved through the API]
+    ESC --> STAFF
+    STAFF --> DONE[(Case closed, with who did it and what they did)]
 
     TPL --> AUD[(Persist decision and audit trail)]
     CLR --> AUD
@@ -440,6 +440,13 @@ Retrieval quality is measured separately and must not be confused with
 routing correctness.
 
 ## Every decision is recorded before anything is sent
+
+What a member of staff does next is outside this API. They see the case, take
+it on and record what they did; approving a draft, editing it and sending it
+to the customer happen in the tools they already use. The alternative was an
+approve-edit-reject flow here, with delivery, and the honest position is that
+it was not built rather than that it is implied by a diagram.
+
 
 Each request persists its intent, risk flags, source plan, evidence
 references, reliability factors and route, whether or not a customer ever sees

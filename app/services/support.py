@@ -56,11 +56,12 @@ class SupportAgent:
             if isinstance(decided, Proceed)
             else decided
         )
+        allowed = decided.sources if isinstance(decided, Proceed) else frozenset()
         reply = replied(
             reached,
             messages=self.messages,
             locale=enquiry.locale,
             case=reference,
         )
-        await cases.record(reference, enquiry, reply, customer)
+        await cases.record(reference, enquiry, reply, customer, allowed)
         return reply

@@ -15,6 +15,7 @@ from app.agent.enquiry import MAX_MESSAGE, Enquiry
 from app.agent.intent import ClassifierUnavailableError, Intent
 from app.agent.knowledge import Locale, load_corpus
 from app.agent.messages import load_messages
+from app.agent.profiles import Source
 from app.agent.responses import load_templates
 from app.agent.retrieval import PolicyIndex
 from app.api.support import support_agent
@@ -558,6 +559,7 @@ async def test_a_record_that_cannot_be_written_is_not_answered_around(
             enquiry: Enquiry,
             reply: SupportReply,
             customer: int,
+            sources: frozenset[Source] = frozenset(),
         ) -> None:
             raise RuntimeError("the queue is down")
 

@@ -49,6 +49,12 @@ class SupportCase(Base):
     external_customer_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     route: Mapped[str] = mapped_column(String(32), nullable=False)
+    # The sources this request was permitted to read, as they stood when it
+    # was decided. Derivable from the intent today and stored anyway, for the
+    # reason the wording is stored: a profile can be edited, and the record
+    # answers what was allowed then, not what would be allowed now. Empty
+    # where the request never got as far as being placed.
+    sources: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     reasons: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     intent: Mapped[str | None] = mapped_column(String(32), nullable=True)
 

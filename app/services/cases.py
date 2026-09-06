@@ -19,6 +19,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.enquiry import Enquiry
+from app.agent.profiles import Source
 from app.agent.reliability import Route
 from app.models.support import SupportCase
 from app.models.user import utc_now
@@ -42,7 +43,12 @@ class CaseRecorder(Protocol):
     """
 
     async def record(
-        self, reference: str, enquiry: Enquiry, reply: SupportReply, customer: int
+        self,
+        reference: str,
+        enquiry: Enquiry,
+        reply: SupportReply,
+        customer: int,
+        sources: frozenset[Source] = frozenset(),
     ) -> None:
         """Persist one decision. Raises rather than losing it quietly."""
         ...
@@ -55,7 +61,12 @@ class DatabaseCases:
         self._db = db
 
     async def record(
-        self, reference: str, enquiry: Enquiry, reply: SupportReply, customer: int
+        self,
+        reference: str,
+        enquiry: Enquiry,
+        reply: SupportReply,
+        customer: int,
+        sources: frozenset[Source] = frozenset(),
     ) -> None:
         answered = isinstance(reply, Answer)
         stated = reply.model_dump(mode="json")
@@ -69,6 +80,7 @@ class DatabaseCases:
                 product_reference=enquiry.product,
                 external_customer_id=enquiry.customer,
                 route=str(reply.route),
+                sources=sorted(str(source) for source in sources),
                 # A clarification carries one; everything else carries a list.
                 reasons=stated.get("reasons") or [stated["reason"]]
                 if not answered

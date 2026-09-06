@@ -330,3 +330,50 @@ async def test_two_people_resolving_at_once_produce_one_account(
     assert sorted(r.status_code for r in results) == [200, 409, 409]
     won = next(r for r in results if r.status_code == 200).json()
     assert won["resolution"].startswith("Handled by number")
+
+
+@pytest.mark.asyncio
+async def test_a_case_records_what_the_request_was_allowed_to_read(
+    async_client: AsyncClient, wired: None, person: Callable[..., object]
+) -> None:
+    """The design notes say a source plan is kept, and none was.
+
+    Derivable from the intent today, and stored anyway for the reason the
+    delivered words are stored: a profile can be edited afterwards, and the
+    record answers what was permitted then.
+    """
+    customer = await person()  # type: ignore[misc]
+    escalated = await async_client.post(
+        MESSAGES,
+        json={"message": "Do you ship to Belgium?"},
+        headers=customer,
+    )
+    staff = await person(UserRole.SUPPORT_AGENT)  # type: ignore[misc]
+    case = next(
+        c
+        for c in (await async_client.get(CASES, headers=staff)).json()
+        if c["reference"] == escalated.json()["case"]
+    )
+    # A shipping question is placed, so the plan is the one its profile names.
+    assert case["sources"] == ["history", "knowledge_base"]
+
+
+@pytest.mark.asyncio
+async def test_a_request_that_never_got_placed_names_no_sources(
+    async_client: AsyncClient, wired: None, person: Callable[..., object]
+) -> None:
+    """Trouble is reported before any profile is chosen, so there is no plan.
+
+    Recording one anyway would put a guess where an audit expects a fact.
+    """
+    customer = await person()  # type: ignore[misc]
+    escalated = await async_client.post(
+        MESSAGES, json={"message": "I was charged twice"}, headers=customer
+    )
+    staff = await person(UserRole.SUPPORT_AGENT)  # type: ignore[misc]
+    case = next(
+        c
+        for c in (await async_client.get(CASES, headers=staff)).json()
+        if c["reference"] == escalated.json()["case"]
+    )
+    assert case["sources"] == []

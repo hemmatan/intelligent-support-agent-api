@@ -38,6 +38,7 @@ class Case(BaseModel):
 
     # What was decided, and on what.
     route: str
+    sources: list[str]
     reasons: list[str]
     intent: str | None
     sent: str
