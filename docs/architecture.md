@@ -30,7 +30,7 @@ flowchart TD
     A[Authenticated customer message] --> B[Assemble context<br/>identity, commerce linkage, locale,<br/>referents carried over from prior turns]
     B --> C{Mandatory risk rules}
     C -->|fraud, dispute, compromise, legal threat| ESC[Human escalation]
-    C -->|clear| D[Classify intent<br/>rules first, model only if ambiguous]
+    C -->|clear| D[Classify intent<br/>listed phrases; no model in this path]
 
     D --> DR{Intent resolved?}
     DR -->|no| CLR[Render clarification template]
@@ -121,11 +121,12 @@ question, confidently.
 Priority therefore follows the claim. Order status goes to commerce; return
 policy goes to the knowledge base.
 
-The classifier is allowed to return no intent. "I returned my order last
-week, why haven't I got my money back?" is plausibly a return status, a
-refund status or a payment dispute, and guessing picks the wrong sources
-before anything else runs. Below a confidence threshold the request clarifies
-rather than proceeding on a guess.
+Recognising nothing is a permitted answer. "I returned my order last week,
+why haven't I got my money back?" is plausibly a return status, a refund
+status or a payment dispute, and guessing picks the wrong sources before
+anything else runs, so an unrecognised request is asked about rather than
+placed. A model was evaluated for this and could not do it; see *Considered
+and rejected*.
 
 A message can also carry more than one intent — "where is my order, and can I
 return it once it arrives?". Where the highest-risk intent is escalatory, it
@@ -341,9 +342,12 @@ looks exactly like a question it can answer in different words.
 Words corroborating meaning is evidence, and reaches a customer. Meaning
 alone is a ranking, and reaches internal review. Whether the entry actually
 carries the claim being asked for is settled by coverage, which has a
-definite answer where a similarity has only a degree. A classifier resolves
-ambiguous non-sensitive intent when deterministic rules cannot. A generative
-model writes staff-only drafts and history summaries.
+definite answer where a similarity has only a degree.
+
+Intent and risk are decided by listed phrases, with no model in either path.
+`IntentClassifier` describes the shape one would have to take to be admitted
+and nothing implements it, which is a conclusion rather than an unfinished
+task. A generative model writes staff-only drafts and history summaries.
 
 No model is a source of business facts, and none writes to a customer.
 
@@ -355,21 +359,10 @@ who want to say something the templates cannot express answer through the
 human channel, which is not agent output. There is no path from generated
 prose to a customer.
 
-Sensitive-situation detection runs *before* model classification. The
-classifier may add a risk flag; it can never clear one that rules established.
-
-It is consulted on every message the risk rules let through, including the
-ones the phrase rules understood. Recognising a request is not the same as
-noticing the person making it is in trouble: "I need to return this because a
-stranger used my account" is a return, and the clause that matters is the
-other one. Its risk flags are acted on either way; the intent it offers is
-taken only where the rules recognised nothing, so it cannot reinterpret a
-request they placed. It is never shown a message the rules escalated, which
-is what makes "never clears" structural rather than a promise.
-
-The cost is a model call on every message that is not obviously trouble. That
-is the price of the rules being a fixed vocabulary while the people writing in
-are not.
+Sensitive-situation detection is the deterministic rules alone. Nothing a
+model returns can raise or lower a risk, because no model is asked. What that
+buys and what it costs are set out under *What the risk detector knows, and
+what it does not*.
 
 Four situations qualify: payment disputes, suspected fraud, account
 compromise, and legal threats. A message naming one of them escalates unless
@@ -485,6 +478,21 @@ underneath a green suite.
 
 Once a token was available, a graded set of English and French messages was run
 against the live provider.
+
+**Setup**, so the numbers can be reproduced or contradicted:
+
+| | |
+|---|---|
+| Model | `MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7` |
+| Provider | HF Inference, `router.huggingface.co/hf-inference/models/{model}` |
+| Modes | `multi_label` true and false, both measured |
+| Template | `hypothesis_template: "{}"` — the labels are whole hypotheses |
+| Labels | full sentences per locale, e.g. "somebody used the customer's card without their permission" / "le client dit que quelqu'un d'autre a accédé à son compte" |
+| Thresholds tried | risk 0.50–0.99, intent 0.70 with a 0.15 margin |
+| Date | 2026-09-06 |
+
+The implementation was deleted in the same session, so the model name and the
+prompting live here rather than only in `git show d486d5a`.
 
 **Danger, each label scored independently.** The score for "somebody used the
 customer's card without their permission":

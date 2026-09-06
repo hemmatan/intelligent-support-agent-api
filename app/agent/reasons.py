@@ -19,13 +19,12 @@ from enum import StrEnum
 
 
 class RiskReason(StrEnum):
-    """Danger a message reports, whoever noticed it.
+    """Danger a message reports, established by reading it.
 
-    Separate from the rest because this is the only kind a model may raise.
-    Reading a sentence is something it can do. Whether a customer is on file,
-    or whether retrieval found anything, are facts about our systems that it
-    has not been shown and could only be guessing at — and a guess here is one
-    that walks straight into an escalation queue.
+    Separate from the rest because of where it comes from. These are settled
+    by what a customer wrote; whether they are on file, or whether retrieval
+    found anything, are facts about our own systems, arrived at by looking
+    rather than reading.
 
     Values are stable: they outlive the code that produces them.
     """
