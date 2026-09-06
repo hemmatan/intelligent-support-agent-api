@@ -1,6 +1,7 @@
 """Reading a message with a hosted model, and what its scores are taken to mean."""
 
 import json
+import os
 from typing import Any
 
 import httpx
@@ -40,11 +41,9 @@ def answering(scores: dict[str, float]) -> tuple[HuggingFaceClassifier, list[Any
         labels = payload["parameters"]["candidate_labels"]
         return httpx.Response(
             200,
-            json={
-                "sequence": payload["inputs"],
-                "labels": labels,
-                "scores": [scores.get(label, 0.01) for label in labels],
-            },
+            json=[
+                {"label": label, "score": scores.get(label, 0.01)} for label in labels
+            ],
         )
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
@@ -88,6 +87,84 @@ async def test_the_request_asks_for_independent_scores() -> None:
     classifier, sent = answering({ORDERS: 0.9})
     await classifier.classify("where is my order", "en")
     assert sent[0]["parameters"]["multi_label"] is True
+
+
+@pytest.mark.asyncio
+async def test_nothing_is_wrapped_around_a_sentence_that_is_already_one() -> None:
+    """Left to the default the provider builds "This example is {}."
+
+    Which turns a hypothesis into gibberish, and puts an English frame around
+    the French ones — undoing the reason they were written in French.
+    """
+    classifier, sent = answering({})
+    await classifier.classify("où est ma commande", "fr")
+    assert sent[0]["parameters"]["hypothesis_template"] == "{}"
+
+
+@pytest.mark.asyncio
+async def test_no_undocumented_keys_are_sent() -> None:
+    """An option the provider never documented is one nothing promises to ignore."""
+    classifier, sent = answering({})
+    await classifier.classify("hello", "en")
+    assert "options" not in sent[0]
+    assert set(sent[0]) == {"inputs", "parameters"}
+    assert set(sent[0]["parameters"]) == {
+        "candidate_labels",
+        "hypothesis_template",
+        "multi_label",
+    }
+
+
+@pytest.mark.asyncio
+async def test_the_documented_endpoint_is_the_one_called() -> None:
+    """A path the provider does not serve answers 404, which this code reads
+    as a model nobody can reach — so a wrong URL reports itself as a wrong
+    model name and startup fails describing the wrong thing.
+    """
+    classifier, _ = answering({})
+    sent: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.append(str(request.url))
+        return httpx.Response(200, json=[])
+
+    classifier = HuggingFaceClassifier(
+        settings(), httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    )
+    with pytest.raises(ClassifierUnavailableError):
+        await classifier.classify("hello", "en")
+    assert sent == [
+        "https://router.huggingface.co/hf-inference/models/"
+        "MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_an_exact_tie_names_nothing_whatever_the_margin_is() -> None:
+    """Configured to nought, the comparison alone let the first-declared win.
+
+    Two identical scores are the clearest case of a message supporting both
+    readings, and it was the one case the rule stopped covering.
+    """
+    tied = Settings(  # type: ignore[call-arg]
+        _env_file=None,
+        HUGGINGFACE_API_TOKEN=SecretStr("hf_test"),
+        CLASSIFIER_INTENT_MARGIN=0.0,
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        labels = payload["parameters"]["candidate_labels"]
+        scores = {ORDERS: 0.9, RETURNS: 0.9}
+        return httpx.Response(
+            200,
+            json=[{"label": x, "score": scores.get(x, 0.01)} for x in labels],
+        )
+
+    classifier = HuggingFaceClassifier(
+        tied, httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    )
+    assert (await classifier.classify("order and returns", "en")).intent is None
 
 
 @pytest.mark.asyncio
@@ -162,20 +239,24 @@ async def test_the_probe_finds_a_typo_before_a_customer_does() -> None:
 @pytest.mark.parametrize(
     "body",
     [
-        ["not", "an", "object"],
-        {"scores": [0.9]},
-        {"labels": [ORDERS], "scores": [0.9, 0.1]},
-        {"labels": ["something we never asked"], "scores": [0.9]},
-        {"labels": [ORDERS], "scores": [True]},
-        {"labels": [ORDERS], "scores": ["0.9"]},
-        {"labels": [ORDERS], "scores": [1.4]},
-        {"labels": [ORDERS], "scores": [-0.2]},
+        {"labels": [ORDERS], "scores": [0.9]},
+        ["not an object"],
+        [{"score": 0.9}],
+        [{"label": ORDERS}],
+        [{"label": ORDERS, "score": 0.9}],
+        [{"label": "something we never asked", "score": 0.9}],
+        [{"label": ORDERS, "score": True}],
+        [{"label": ORDERS, "score": "0.9"}],
+        [{"label": ORDERS, "score": 1.4}],
+        [{"label": ORDERS, "score": -0.2}],
     ],
     ids=[
+        "the shape the old code expected",
         "not an object",
-        "no labels",
-        "counts disagree",
-        "labels we did not ask",
+        "no label",
+        "no score",
+        "only one of the labels asked",
+        "a label we did not ask",
         "a boolean score",
         "a string score",
         "above one",
@@ -203,8 +284,8 @@ async def test_a_score_that_compares_false_with_everything_is_refused() -> None:
         return httpx.Response(
             200,
             content=json.dumps(
-                {"labels": labels, "scores": [float("nan")] * len(labels)}
-            ).replace("NaN", "NaN"),
+                [{"label": label, "score": float("nan")} for label in labels]
+            ),
             headers={"content-type": "application/json"},
         )
 
@@ -220,3 +301,71 @@ def test_every_risk_and_intent_has_a_sentence_in_every_language() -> None:
     for locale in ("en", "fr"):
         assert set(_RISKS[locale].values()) == set(RiskReason)
         assert set(_INTENTS[locale].values()) == set(Intent)
+
+
+# Messages a real model has to get right, in both languages a customer writes
+# in. Everything above proves the adapter reads scores correctly; only these
+# say the scores are worth reading, and only these exercise the URL, the
+# payload and the response shape the provider actually serves.
+GRADED: list[tuple[str, str, set[RiskReason], Intent | None]] = [
+    (
+        "en",
+        "I was charged twice for the same order",
+        {RiskReason.PAYMENT_DISPUTE},
+        None,
+    ),
+    (
+        "en",
+        "Someone got into my account and ordered things I never bought",
+        {RiskReason.ACCOUNT_COMPROMISE, RiskReason.SUSPECTED_FRAUD},
+        None,
+    ),
+    ("en", "How can I keep my account safe from fraud?", set(), None),
+    ("en", "How long do I have to send a jacket back?", set(), Intent.RETURN_POLICY),
+    ("en", "Where has my parcel got to?", set(), Intent.ORDER_STATUS),
+    (
+        "fr",
+        "J'ai été débité deux fois pour la même commande",
+        {RiskReason.PAYMENT_DISPUTE},
+        None,
+    ),
+    ("fr", "Comment protéger mon compte contre la fraude ?", set(), None),
+    ("fr", "Quel est le délai de livraison ?", set(), Intent.SHIPPING_POLICY),
+]
+
+
+@pytest.mark.skipif(
+    not os.environ.get("DORNASHOP_HUGGINGFACE_API_TOKEN"),
+    reason="needs a real token; set DORNASHOP_HUGGINGFACE_API_TOKEN to run",
+)
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("locale", "message", "risks", "intent"),
+    GRADED,
+    ids=[f"{locale}: {message[:38]}" for locale, message, _, _ in GRADED],
+)
+async def test_a_real_model_reads_these_the_way_the_thresholds_assume(
+    locale: str, message: str, risks: set[RiskReason], intent: Intent | None
+) -> None:
+    """The claim every mock in this file deliberately refuses to make.
+
+    A stand-in returns the shape the code expects, so it cannot say whether
+    the provider serves that shape, whether the URL is the right one, or
+    whether these hypotheses separate a fraud report from a question about
+    fraud. Two of those were wrong at once and everything here still passed.
+
+    Skipped by default: it needs a token and the network, and CI has neither.
+    """
+    read = await HuggingFaceClassifier(Settings()).classify(message, locale)  # type: ignore[arg-type]
+    assert read.risks == risks
+    assert read.intent is intent
+
+
+@pytest.mark.skipif(
+    not os.environ.get("DORNASHOP_HUGGINGFACE_API_TOKEN"),
+    reason="needs a real token; set DORNASHOP_HUGGINGFACE_API_TOKEN to run",
+)
+@pytest.mark.asyncio
+async def test_a_real_provider_accepts_the_request_we_send() -> None:
+    """The probe, against the thing it exists to check."""
+    await HuggingFaceClassifier(Settings()).probe()

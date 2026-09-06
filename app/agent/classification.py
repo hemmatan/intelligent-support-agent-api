@@ -38,10 +38,12 @@ from app.core.config import Settings
 # Answers that will be identical however many times they are asked for.
 _CONFIGURATION_FAILURES = frozenset((401, 403, 404))
 
-_ENDPOINT = (
-    "https://router.huggingface.co/hf-inference/models/{model}"
-    "/pipeline/zero-shot-classification"
-)
+_ENDPOINT = "https://router.huggingface.co/hf-inference/models/{model}"
+
+# The labels below are whole hypotheses, so nothing is wrapped around them.
+# Left to its default the provider builds "This example is {}.", which turns a
+# sentence into gibberish and puts an English frame around a French one.
+_BARE = "{}"
 
 # Written in the customer's language rather than translated at the last
 # moment: entailment is judged between two pieces of text, and a French
@@ -172,6 +174,11 @@ class HuggingFaceClassifier:
         best, runner_up = ranked[0], ranked[1] if len(ranked) > 1 else (0.0, None)
         if best[0] < self._intent_threshold:
             return None
+        # Equal scores are ambiguous whatever the margin is set to. Left to the
+        # comparison alone, a configured margin of zero made the winner
+        # whichever hypothesis happened to be declared first.
+        if best[0] == runner_up[0]:
+            return None
         if best[0] - runner_up[0] < self._intent_margin:
             return None
         return best[1]
@@ -179,8 +186,11 @@ class HuggingFaceClassifier:
     async def _scores(self, message: str, hypotheses: list[str]) -> dict[str, float]:
         payload = {
             "inputs": message,
-            "parameters": {"candidate_labels": hypotheses, "multi_label": True},
-            "options": {"wait_for_model": True},
+            "parameters": {
+                "candidate_labels": hypotheses,
+                "hypothesis_template": _BARE,
+                "multi_label": True,
+            },
         }
         headers = {"Authorization": f"Bearer {self._token}"}
         try:
@@ -206,33 +216,34 @@ class HuggingFaceClassifier:
 
 
 def _scores_from(body: Any, expected: list[str]) -> dict[str, float]:
-    """Pair labels with scores, refusing anything that is not one of each.
+    """Read the documented answer: one object per label, each with its score.
 
     Checked here because nothing downstream checks it again, and every way of
-    being wrong is quiet. A missing label reads as a score of zero, which is a
-    danger nobody reported. A score outside nought to one clears any threshold
-    it is compared against. A NaN compares false with everything, so a message
-    that should have escalated proceeds.
+    being wrong is quiet. A label that never came back reads as nought, which
+    is a danger nobody reported. A score above one clears any threshold it
+    meets. A NaN loses every comparison, so a message that should have gone to
+    a person goes on instead.
     """
-    if not isinstance(body, dict):
-        raise ClassifierUnavailableError(f"expected an object, got {body!r:.80}")
-    labels, scores = body.get("labels"), body.get("scores")
-    if not isinstance(labels, list) or not isinstance(scores, list):
-        raise ClassifierUnavailableError(f"no labels and scores in {body!r:.80}")
-    if len(labels) != len(scores):
-        raise ClassifierUnavailableError(
-            f"{len(labels)} labels against {len(scores)} scores"
-        )
-    if sorted(map(str, labels)) != sorted(expected):
-        raise ClassifierUnavailableError("the labels answered are not the ones asked")
+    if not isinstance(body, list):
+        raise ClassifierUnavailableError(f"expected a list of scores, got {body!r:.80}")
 
     paired: dict[str, float] = {}
-    for label, score in zip(labels, scores, strict=True):
+    for item in body:
+        if not isinstance(item, dict):
+            raise ClassifierUnavailableError(f"{item!r:.60} is not a scored label")
+        label, score = item.get("label"), item.get("score")
+        if not isinstance(label, str):
+            raise ClassifierUnavailableError(f"{label!r:.60} is not a label")
         if isinstance(score, bool) or not isinstance(score, int | float):
             raise ClassifierUnavailableError(f"{score!r} is not a score")
         if not math.isfinite(score) or not 0.0 <= score <= 1.0:
             raise ClassifierUnavailableError(
                 f"{score!r} is not a score between 0 and 1"
             )
-        paired[str(label)] = float(score)
+        if label in paired:
+            raise ClassifierUnavailableError(f"{label!r:.60} was scored twice")
+        paired[label] = float(score)
+
+    if sorted(paired) != sorted(expected):
+        raise ClassifierUnavailableError("the labels answered are not the ones asked")
     return paired
