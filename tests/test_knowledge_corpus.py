@@ -23,12 +23,19 @@ prose_template = "Return {eligibility} within {return_window_days} days."
 return_window_days = 30
 eligibility = "standard_items"
 excluded_categories = ["underwear"]
+sale_items_follow_standard_window = true
 final_sale_returnable = false
 proof_of_purchase_required = true
 
 [words]
 standard_items = "most items"
 underwear = "underwear"
+proof_of_purchase_required_true = "returned with a receipt"
+proof_of_purchase_required_false = "returned without a receipt"
+sale_items_follow_standard_window_true = "are treated the same way"
+sale_items_follow_standard_window_false = "may not be sent back"
+final_sale_returnable_true = "may be sent back too"
+final_sale_returnable_false = "may not"
 """
 
 
@@ -54,10 +61,20 @@ def entry(
                 "return_window_days": 30,
                 "eligibility": "standard_items",
                 "excluded_categories": ["underwear"],
+                "sale_items_follow_standard_window": True,
                 "final_sale_returnable": False,
                 "proof_of_purchase_required": True,
             },
-            "words": {"standard_items": "most items", "underwear": "underwear"},
+            "words": {
+                "standard_items": "most items",
+                "underwear": "underwear",
+                "proof_of_purchase_required_true": "returned with a receipt",
+                "proof_of_purchase_required_false": "returned without a receipt",
+                "sale_items_follow_standard_window_true": "are treated the same way",
+                "sale_items_follow_standard_window_false": "may not be sent back",
+                "final_sale_returnable_true": "may be sent back too",
+                "final_sale_returnable_false": "may not",
+            },
         }
     )
 

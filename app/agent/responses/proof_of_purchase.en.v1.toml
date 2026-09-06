@@ -6,5 +6,5 @@ approved = true
 sentence = "Proof of purchase {proof_of_purchase_required} when you send something back."
 
 [words]
-true = "is needed"
-false = "is not needed"
+proof_of_purchase_required_true = "is needed"
+proof_of_purchase_required_false = "is not needed"

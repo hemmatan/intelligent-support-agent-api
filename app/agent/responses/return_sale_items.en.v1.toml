@@ -3,8 +3,8 @@ locale = "en"
 version = 1
 approved = true
 
-sentence = "Items marked final sale {final_sale_returnable}."
+sentence = "Items reduced in price {sale_items_follow_standard_window}."
 
 [words]
-true = "can be sent back on the same terms as anything else"
-false = "cannot be sent back"
+sale_items_follow_standard_window_true = "can be sent back on the same terms as anything else"
+sale_items_follow_standard_window_false = "cannot be sent back"

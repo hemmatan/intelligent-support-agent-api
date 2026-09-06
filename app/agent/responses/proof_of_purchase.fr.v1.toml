@@ -6,5 +6,5 @@ approved = true
 sentence = "Une preuve d'achat {proof_of_purchase_required} pour tout retour."
 
 [words]
-true = "est exigée"
-false = "n'est pas exigée"
+proof_of_purchase_required_true = "est exigée"
+proof_of_purchase_required_false = "n'est pas exigée"

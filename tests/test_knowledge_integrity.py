@@ -22,6 +22,8 @@ def entry(
     approved: bool | None = None,
     prose_template: str = TEMPLATE,
     words: dict[str, str] | None = None,
+    categories: list[str] | None = None,
+    proof_required: bool = True,
 ) -> ReturnPolicyEntry:
     return ReturnPolicyEntry.model_validate(
         {
@@ -34,12 +36,24 @@ def entry(
             "claims": {
                 "return_window_days": days,
                 "eligibility": "standard_items",
-                "excluded_categories": ["underwear"],
+                "excluded_categories": (
+                    ["underwear"] if categories is None else categories
+                ),
+                "sale_items_follow_standard_window": True,
                 "final_sale_returnable": False,
-                "proof_of_purchase_required": True,
+                "proof_of_purchase_required": proof_required,
             },
             "words": words
-            or {"standard_items": "most items", "underwear": "underwear"},
+            or {
+                "standard_items": "most items",
+                "underwear": "underwear",
+                "proof_of_purchase_required_true": "returned with a receipt",
+                "proof_of_purchase_required_false": "returned without a receipt",
+                "sale_items_follow_standard_window_true": "are treated the same way",
+                "sale_items_follow_standard_window_false": "may not be sent back",
+                "final_sale_returnable_true": "may be sent back too",
+                "final_sale_returnable_false": "may not",
+            },
         }
     )
 
@@ -170,24 +184,31 @@ def test_a_value_with_no_words_here_is_refused() -> None:
                     "return_window_days": 30,
                     "eligibility": "standard_items",
                     "excluded_categories": ["underwear", "swimwear"],
+                    "sale_items_follow_standard_window": True,
                     "final_sale_returnable": False,
                     "proof_of_purchase_required": True,
                 },
-                "words": {"standard_items": "most items", "underwear": "underwear"},
+                "words": {
+                    "standard_items": "most items",
+                    "underwear": "underwear",
+                    "proof_of_purchase_required_true": "returned with a receipt",
+                    "proof_of_purchase_required_false": "returned without a receipt",
+                    "sale_items_follow_standard_window_true": (
+                        "are treated the same way"
+                    ),
+                    "sale_items_follow_standard_window_false": "may not be sent back",
+                    "final_sale_returnable_true": "may be sent back too",
+                    "final_sale_returnable_false": "may not",
+                },
             }
         )
 
 
 def test_words_for_a_value_the_claims_never_hold_are_refused() -> None:
     """Wording nothing can select is wording nobody reviews."""
+    complete = entry().words
     with pytest.raises(ValidationError, match="is not a value these claims hold"):
-        entry(
-            words={
-                "standard_items": "most items",
-                "underwear": "underwear",
-                "swimwear": "swimwear",
-            }
-        )
+        entry(words=dict(complete) | {"swimwear": "swimwear"})
 
 
 def test_a_list_reads_as_a_sentence_in_either_language() -> None:
@@ -202,3 +223,49 @@ def test_a_list_reads_as_a_sentence_in_either_language() -> None:
     assert "sous-vêtements, maillots de bain et bijoux percés" in french.prose
     for rendered in (english.prose, french.prose):
         assert "[" not in rendered and "_" not in rendered
+
+
+@pytest.mark.parametrize(
+    ("kinds", "complaint"),
+    [([], "at least 1"), (["underwear", "underwear"], "more than once")],
+    ids=["empty", "duplicated"],
+)
+def test_a_list_that_cannot_be_said_is_refused(
+    kinds: list[str], complaint: str
+) -> None:
+    """An empty one rendered as a hole in the middle of a sentence.
+
+    "We cannot accept returns of , for hygiene reasons" went to a customer as
+    a direct answer. A repeated one reads back as a stutter. Both are caught
+    where the claim is written rather than where it is spoken.
+    """
+    with pytest.raises(ValidationError, match=complaint):
+        entry(categories=kinds)
+
+
+def test_a_yes_or_no_named_in_the_prose_needs_words_for_both_answers() -> None:
+    """It validated, and then raised on the way to being read.
+
+    Wording was collected for text values only, so a policy naming one of
+    these passed every check and failed at rendering — the one place a fault
+    reaches somebody waiting.
+    """
+    with pytest.raises(ValidationError, match="no words for"):
+        entry(words={"standard_items": "most items", "underwear": "underwear"})
+
+
+def test_a_yes_or_no_cannot_drift_from_the_sentence_describing_it() -> None:
+    """Flipping the claim used to leave the prose saying the opposite.
+
+    Both are now rendered, so the sentence follows the claim or the entry does
+    not load at all.
+    """
+    naming = (
+        "Return {eligibility} in {return_window_days} days, "
+        "{proof_of_purchase_required}."
+    )
+    assert "returned with a receipt" in entry(prose_template=naming).prose
+    assert (
+        "returned without a receipt"
+        in entry(prose_template=naming, proof_required=False).prose
+    )

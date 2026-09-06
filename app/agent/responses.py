@@ -66,7 +66,7 @@ class NothingApprovedToSayError(RuntimeError):
 _JOINS: dict[str, str] = {"en": "and", "fr": "et"}
 
 
-def _sayable(annotation: object) -> set[str]:
+def _sayable(field: str, annotation: object) -> set[str]:
     """Every value this field can hold that has to be turned into words.
 
     A figure needs none. A named choice needs one for each option, a yes-or-no
@@ -75,13 +75,17 @@ def _sayable(annotation: object) -> set[str]:
     claim turns out to hold.
     """
     if annotation is bool:
-        return {"true", "false"}
+        # Keyed by the field, as the searchable text keys them, so a template
+        # naming two yes-or-no claims cannot have them collide.
+        return {f"{field}_true", f"{field}_false"}
     if isinstance(annotation, type) and issubclass(annotation, StrEnum):
         return {member.value for member in annotation}
     return {
         value
         for argument in get_args(annotation)
-        for value in ([argument] if isinstance(argument, str) else _sayable(argument))
+        for value in (
+            [argument] if isinstance(argument, str) else _sayable(field, argument)
+        )
     }
 
 
@@ -156,7 +160,7 @@ class ResponseTemplate(BaseModel):
             value
             for claims in _STATED_BY.get(self.fact, [])
             for field in named & claims.model_fields.keys()
-            for value in _sayable(claims.model_fields[field].annotation)
+            for value in _sayable(field, claims.model_fields[field].annotation)
         }
         unsaid = choices - self.words.keys()
         if unsaid:
@@ -198,7 +202,9 @@ class ResponseTemplate(BaseModel):
             )
 
         return _PLACEHOLDER.sub(
-            lambda m: rendered(values[m.group(1)], self.words, _JOINS[self.locale]),
+            lambda m: rendered(
+                m.group(1), values[m.group(1)], self.words, _JOINS[self.locale]
+            ),
             self.sentence,
         )
 

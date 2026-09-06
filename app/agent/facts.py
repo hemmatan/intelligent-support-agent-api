@@ -31,6 +31,7 @@ class Fact(StrEnum):
     RETURN_ELIGIBILITY = "return_eligibility"
     RETURN_EXCLUDED_CATEGORIES = "return_excluded_categories"
     RETURN_SALE_ITEMS = "return_sale_items"
+    RETURN_FINAL_SALE = "return_final_sale"
     RETURN_SHIPPING_COST = "return_shipping_cost"
     PROOF_OF_PURCHASE = "proof_of_purchase"
 
@@ -72,7 +73,7 @@ _RULES: dict[Fact, Sequence[str]] = {
     ),
     # Naming a kind of thing policies usually carve out. Asked alongside the
     # general rule, so both are requested and the general one cannot answer
-    # for the pair. Nothing states these, so they reach a person.
+    # for the pair.
     Fact.RETURN_EXCLUDED_CATEGORIES: (
         "underwear",
         "swimwear",
@@ -88,19 +89,32 @@ _RULES: dict[Fact, Sequence[str]] = {
         "boucles d'oreilles",
         "raisons d'hygiene",
     ),
+    # Reduced stock, which a policy usually treats like anything else. Kept
+    # apart from the clause below because one value cannot answer both: a
+    # claim about goods withdrawn from sale says nothing about ordinary
+    # markdowns, and answering the second from the first is the mistake this
+    # whole vocabulary exists to stop.
     Fact.RETURN_SALE_ITEMS: (
         "sale item",
-        "final sale",
-        "clearance",
+        "sale items",
         "discounted item",
+        "discounted items",
         "reduced item",
+        "reduced items",
+        "clearance",
         "marked down",
+        "in the sale",
+        "on sale",
         "article solde",
         "articles soldes",
-        "vente definitive",
+        "en solde",
     ),
-    # Nothing states this. Asking for it has to fail rather than be answered
-    # from the return window, which is the other number on the same entry.
+    Fact.RETURN_FINAL_SALE: (
+        "final sale",
+        "final-sale",
+        "vente definitive",
+        "ventes definitives",
+    ),
     Fact.RETURN_SHIPPING_COST: (
         "who pays return",
         "who pays for return",
@@ -164,13 +178,28 @@ _RULES: dict[Fact, Sequence[str]] = {
     ),
 }
 
+_RETURNS = frozenset(
+    {
+        Fact.RETURN_WINDOW,
+        Fact.RETURN_ELIGIBILITY,
+        Fact.RETURN_EXCLUDED_CATEGORIES,
+        Fact.RETURN_SALE_ITEMS,
+        Fact.RETURN_FINAL_SALE,
+        Fact.PROOF_OF_PURCHASE,
+    }
+)
+
 # Asking what a policy says, rather than for one thing it states. Written out
 # rather than inferred from whichever entry turned up: reading the request off
 # the corpus makes every question answerable by whatever happens to be there.
 _WHOLE_POLICY: dict[str, frozenset[Fact]] = {
-    "returns policy": frozenset({Fact.RETURN_WINDOW, Fact.RETURN_ELIGIBILITY}),
-    "return policy": frozenset({Fact.RETURN_WINDOW, Fact.RETURN_ELIGIBILITY}),
-    "politique de retour": frozenset({Fact.RETURN_WINDOW, Fact.RETURN_ELIGIBILITY}),
+    # Everything the returns policy states, not the two facts it happened to
+    # state when this was written. Answering "what is your returns policy"
+    # with the window and nothing else presents a partial answer as a whole
+    # one, and the question is the one that asks for all of it.
+    "returns policy": _RETURNS,
+    "return policy": _RETURNS,
+    "politique de retour": _RETURNS,
     "shipping policy": frozenset({Fact.STANDARD_DELIVERY_TIME}),
     "delivery policy": frozenset({Fact.STANDARD_DELIVERY_TIME}),
     "politique de livraison": frozenset({Fact.STANDARD_DELIVERY_TIME}),

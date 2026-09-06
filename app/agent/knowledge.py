@@ -46,6 +46,24 @@ _STRICT = ConfigDict(extra="forbid", frozen=True, strict=True)
 _JOINS: Mapping[str, str] = {"en": "and", "fr": "et"}
 
 
+def _wording_keys(declared: Mapping[str, object]) -> set[str]:
+    """Every wording this entry has to carry, one key per value it can say.
+
+    A yes-or-no is keyed by its field. Two of them in one entry would both
+    want "true" otherwise, and the second would quietly take the first's
+    words. Figures need nothing; they print as themselves in any language.
+    """
+    keys: set[str] = set()
+    for field, held in declared.items():
+        if isinstance(held, bool):
+            keys |= {f"{field}_true", f"{field}_false"}
+        else:
+            for value in held if isinstance(held, list | tuple) else [held]:
+                if isinstance(value, str):
+                    keys.add(value)
+    return keys
+
+
 class ItemCategory(StrEnum):
     """A kind of thing a policy can single out.
 
@@ -112,16 +130,32 @@ class ReturnPolicyClaims(PolicyClaims):
     # Written in the file as an array of the values. Strict mode relaxes the
     # sequence and its members separately, so both say so.
     excluded_categories: tuple[Annotated[ItemCategory, Field(strict=False)], ...] = (
-        Field(strict=False)
+        Field(strict=False, min_length=1)
     )
+    sale_items_follow_standard_window: bool
     final_sale_returnable: bool
     proof_of_purchase_required: bool
+
+    @model_validator(mode="after")
+    def check_each_excluded_kind_appears_once(self) -> "ReturnPolicyClaims":
+        """A kind named twice reads back as a stutter to whoever is told.
+
+        The set has to hold something as well. An empty one renders as a gap
+        in the middle of a sentence — "we cannot accept returns of , for
+        hygiene reasons" — which is refused by the length rule above, and this
+        is the other half of the same thought: what goes in the sentence has
+        to be sayable.
+        """
+        if len(set(self.excluded_categories)) != len(self.excluded_categories):
+            raise ValueError("a kind of thing is excluded more than once")
+        return self
 
     STATES: ClassVar[Mapping[str, Fact]] = {
         "return_window_days": Fact.RETURN_WINDOW,
         "eligibility": Fact.RETURN_ELIGIBILITY,
         "excluded_categories": Fact.RETURN_EXCLUDED_CATEGORIES,
-        "final_sale_returnable": Fact.RETURN_SALE_ITEMS,
+        "sale_items_follow_standard_window": Fact.RETURN_SALE_ITEMS,
+        "final_sale_returnable": Fact.RETURN_FINAL_SALE,
         "proof_of_purchase_required": Fact.PROOF_OF_PURCHASE,
     }
 
@@ -204,12 +238,7 @@ class BasePolicyEntry(BaseModel):
 
         # Every named value the claims hold has to have words here, or the
         # searchable text carries a slug nobody would ever type.
-        named = {
-            value
-            for held in declared.values()
-            for value in (held if isinstance(held, list | tuple) else [held])
-            if isinstance(value, str)
-        }
+        named = _wording_keys(declared)
         unwritten = named - self.words.keys()
         if unwritten:
             raise ValueError(f"no words for {sorted(unwritten)}")
@@ -234,7 +263,9 @@ class BasePolicyEntry(BaseModel):
         """The sentences retrieval searches, rendered from the claims."""
         declared = self.claims.model_dump()
         return _PLACEHOLDER.sub(
-            lambda m: rendered(declared[m.group(1)], self.words, _JOINS[self.locale]),
+            lambda m: rendered(
+                m.group(1), declared[m.group(1)], self.words, _JOINS[self.locale]
+            ),
             self.prose_template,
         )
 

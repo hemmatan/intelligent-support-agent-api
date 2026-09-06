@@ -6,16 +6,17 @@ kind = "return_policy"
 
 prose_template = """
 You can return {eligibility} within {return_window_days} days of delivery for a
-full refund. Items must be unworn, in their original packaging, and sent back
-with proof of purchase. We do not accept returns of {excluded_categories} for
-hygiene reasons. Sale items follow the same {return_window_days} days unless
-they are marked final sale.
+full refund. Items must be unworn, in their original packaging, and
+{proof_of_purchase_required}. We do not accept returns of {excluded_categories}
+for hygiene reasons. Sale items {sale_items_follow_standard_window}, and
+{final_sale_returnable}.
 """
 
 [claims]
 return_window_days = 30
 eligibility = "standard_items"
 excluded_categories = ["underwear", "swimwear", "pierced_jewellery"]
+sale_items_follow_standard_window = true
 final_sale_returnable = false
 proof_of_purchase_required = true
 
@@ -24,3 +25,9 @@ standard_items = "most items"
 underwear = "underwear"
 swimwear = "swimwear"
 pierced_jewellery = "pierced jewellery"
+proof_of_purchase_required_true = "returned with a receipt"
+proof_of_purchase_required_false = "returned without a receipt"
+sale_items_follow_standard_window_true = "are treated the same way"
+sale_items_follow_standard_window_false = "may not be sent back"
+final_sale_returnable_true = "anything marked final sale may be sent back too"
+final_sale_returnable_false = "anything marked final sale may not"

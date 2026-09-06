@@ -89,9 +89,15 @@ def test_a_question_nothing_could_pin_down_is_read_by_somebody() -> None:
 
 
 def test_asking_what_a_policy_says_asks_for_what_it_states() -> None:
+    """All of it, not the two facts it happened to state when this was written.
+
+    Answering the question that asks for the whole policy with a window and a
+    general rule presents a part as the whole, which is worse than declining.
+    """
+    stated = next(entry.facts for entry in load_corpus() if "returns" in entry.id)
     requested = facts_in("What is your returns policy?")
-    assert requested == RETURNS
-    assert route_of(coverage_of(requested, RETURNS)) is Route.DIRECT_RESPONSE
+    assert requested == stated
+    assert route_of(coverage_of(requested, stated)) is Route.DIRECT_RESPONSE
 
 
 def test_a_general_question_is_not_read_off_whatever_turned_up() -> None:

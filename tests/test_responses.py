@@ -109,7 +109,7 @@ def test_a_draft_is_not_wording(tmp_path: Path) -> None:
 
 def test_the_shipped_wording_all_loads() -> None:
     library = load_templates()
-    assert len(library) == 12
+    assert len(library) == 14
     for template in library:
         assert template.approved
 
@@ -241,7 +241,7 @@ def test_a_yes_or_no_reaches_a_customer_as_words() -> None:
     """
     library = load_templates()
     reply = library.say(
-        frozenset({Fact.RETURN_SALE_ITEMS}), entry("returns.standard.en.v1"), "en"
+        frozenset({Fact.RETURN_FINAL_SALE}), entry("returns.standard.en.v1"), "en"
     )
     assert "cannot be sent back" in reply.text
     assert "False" not in reply.text
@@ -270,9 +270,9 @@ def test_wording_must_cover_every_answer_a_yes_or_no_can_give() -> None:
         ResponseTemplate.model_validate(
             {
                 **WORDING,
-                "fact": "return_sale_items",
+                "fact": "return_final_sale",
                 "sentence": "Final sale items {final_sale_returnable}.",
-                "words": {"false": "cannot be sent back"},
+                "words": {"final_sale_returnable_false": "cannot be sent back"},
             }
         )
 

@@ -27,7 +27,7 @@ def fold(text: str) -> str:
     return stripped.translate(_APOSTROPHES)
 
 
-def rendered(value: object, words: Mapping[str, str], joiner: str) -> str:
+def rendered(field: str, value: object, words: Mapping[str, str], joiner: str) -> str:
     """One claim value as a particular language writes it.
 
     Figures print as themselves. Everything named — a token, a choice, a
@@ -41,13 +41,15 @@ def rendered(value: object, words: Mapping[str, str], joiner: str) -> str:
     two rules that agree until one of them is edited.
     """
     if isinstance(value, list | tuple):
-        spoken = [rendered(item, words, joiner) for item in value]
+        spoken = [rendered(field, item, words, joiner) for item in value]
         if len(spoken) < 2:
             return "".join(spoken)
         return f"{', '.join(spoken[:-1])} {joiner} {spoken[-1]}"
     # bool before str and int: True is an int, and "True" is not an answer.
+    # Keyed by the field, because two yes-or-no claims in one entry would
+    # otherwise both want the key "true" and one would silently win.
     if isinstance(value, bool):
-        return words[str(value).lower()]
+        return words[f"{field}_{str(value).lower()}"]
     if isinstance(value, str):
         return words[value]
     return str(value)
