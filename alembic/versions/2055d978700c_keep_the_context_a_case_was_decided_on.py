@@ -53,6 +53,12 @@ def upgrade() -> None:
             ondelete="SET NULL",
         )
 
+    # Carry the text across before the column holding it goes. The default
+    # above exists so the ADD succeeds on a populated table; it is not an
+    # answer, and leaving it in place on a row that had one is losing the
+    # reply while reporting success.
+    op.execute("UPDATE support_cases SET sent = COALESCE(reply, '')")
+
     with op.batch_alter_table("support_cases") as batch:
         batch.alter_column("sent", server_default=None)
         batch.drop_column("reply")
@@ -62,6 +68,14 @@ def downgrade() -> None:
     """Downgrade schema."""
     with op.batch_alter_table("support_cases") as batch:
         batch.add_column(sa.Column("reply", sa.TEXT(), nullable=True))
+
+    # And back the other way. The older column only ever held the prose of a
+    # direct answer, so an escalation's acknowledgement has nowhere of its own
+    # to go; putting it here keeps the words rather than dropping them for
+    # tidiness.
+    op.execute("UPDATE support_cases SET reply = sent")
+
+    with op.batch_alter_table("support_cases") as batch:
         batch.drop_constraint("fk_support_cases_assigned_to_users", type_="foreignkey")
         batch.drop_column("resolution")
         batch.drop_column("assigned_to")
