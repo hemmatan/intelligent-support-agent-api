@@ -16,10 +16,15 @@ runs.
 
 from dataclasses import dataclass
 
-from app.agent.intent import Intent, IntentClassifier, intents_in
+from app.agent.intent import (
+    ClassifierUnavailableError,
+    Intent,
+    IntentClassifier,
+    intents_in,
+)
 from app.agent.knowledge import Locale
 from app.agent.profiles import DecisionProfile, Input, Source, profile_for
-from app.agent.reasons import ClarificationReason, EscalationReason
+from app.agent.reasons import ClarificationReason, EscalationReason, ReviewReason
 from app.agent.reliability import Route
 from app.agent.risk import risks_in
 
@@ -41,6 +46,18 @@ class Escalate:
     def __post_init__(self) -> None:
         if not self.reasons:
             raise UnexplainedEscalationError("an escalation must say why")
+
+
+@dataclass(frozen=True)
+class Review:
+    """Nothing is wrong with the request; something is wrong with us.
+
+    Somebody here picks it up. The customer is not sent to a specialist for a
+    fault on our side, and is not answered on less than the service normally
+    knows about a message.
+    """
+
+    reason: ReviewReason
 
 
 @dataclass(frozen=True)
@@ -79,7 +96,7 @@ class Proceed:
         return self.profile.required_sources | self.profile.contextual_sources
 
 
-Triage = Escalate | Clarify | Proceed
+Triage = Escalate | Clarify | Proceed | Review
 
 
 async def triage(
@@ -87,7 +104,7 @@ async def triage(
     *,
     known: frozenset[Input] = frozenset(),
     locale: Locale = "en",
-    classifier: IntentClassifier | None = None,
+    classifier: IntentClassifier,
 ) -> Triage:
     """Work out what to do with a message, before doing any of it.
 
@@ -120,14 +137,19 @@ async def triage(
     matched = intents_in(message)
     intent = next(iter(matched)) if len(matched) == 1 else None
 
-    if classifier is not None:
+    try:
         reading = await classifier.classify(message, locale)
-        # Trouble it saw and the rules did not outranks anything it named,
-        # and outranks anything they named too.
-        if reading.risks:
-            return Escalate(reasons=reading.risks)
-        if not matched:
-            intent = reading.intent
+    except ClassifierUnavailableError:
+        # Less is known about this message than the service answers on, and
+        # nothing about that is the customer's doing.
+        return Review(reason=ReviewReason.SAFETY_CHECK_UNAVAILABLE)
+
+    # Trouble it saw and the rules did not outranks anything it named, and
+    # outranks anything they named too.
+    if reading.risks:
+        return Escalate(reasons=reading.risks)
+    if not matched:
+        intent = reading.intent
 
     if len(matched) > 1:
         return Clarify(reason=ClarificationReason.MULTIPLE_INTENTS)

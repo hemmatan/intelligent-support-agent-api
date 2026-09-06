@@ -59,6 +59,11 @@ class ReviewReason(StrEnum):
 
     SOURCE_UNAVAILABLE = "source_unavailable"
 
+    # The safety pass could not be completed. Not a judgement about the
+    # message: a judgement about how much is known about it, which is less
+    # than the service is willing to answer on.
+    SAFETY_CHECK_UNAVAILABLE = "safety_check_unavailable"
+
 
 class EvidenceReason(StrEnum):
     """Which rating held an answer back, once the gates had all passed.

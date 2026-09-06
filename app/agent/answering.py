@@ -19,7 +19,7 @@ from app.agent.profiles import DecisionProfile, Source
 from app.agent.reasons import EscalationReason, EvidenceReason, ReviewReason
 from app.agent.reliability import Assessment, Factor, ReliabilityLevel, Route
 from app.agent.retrieval import Hit, PolicyIndex, relevance_of
-from app.agent.triage import Proceed, UnexplainedEscalationError
+from app.agent.triage import Proceed, Review, UnexplainedEscalationError
 
 
 @dataclass(frozen=True)
@@ -35,17 +35,6 @@ class Citation:
     source: Source
     reference: str
     content_hash: str
-
-
-@dataclass(frozen=True)
-class Review:
-    """Nothing is wrong with the request; something is wrong with us.
-
-    Somebody here retries, drafts, or writes the reply. The customer is not
-    escalated to a specialist for an outage on our side.
-    """
-
-    reason: ReviewReason
 
 
 # Which rating, having decided an outcome, gets recorded as the cause of it.

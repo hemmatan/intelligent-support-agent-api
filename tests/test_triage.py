@@ -1,18 +1,25 @@
 """What happens to a message before anything is asked on its behalf."""
 
+import inspect
 from dataclasses import fields
 
 import pytest
 
-from app.agent.intent import Classification, Intent, intents_in
+from app.agent.intent import (
+    Classification,
+    ClassifierUnavailableError,
+    Intent,
+    intents_in,
+)
 from app.agent.knowledge import Locale
 from app.agent.profiles import Input, Source, profile_for
-from app.agent.reasons import ClarificationReason, EscalationReason
+from app.agent.reasons import ClarificationReason, EscalationReason, ReviewReason
 from app.agent.risk import risks_in
 from app.agent.triage import (
     Clarify,
     Escalate,
     Proceed,
+    Review,
     UnexplainedEscalationError,
     triage,
 )
@@ -30,6 +37,20 @@ class MustNotBeAsked:
 
     async def classify(self, message: str, locale: Locale) -> Classification:
         raise AssertionError("a classifier saw a message the rules had settled")
+
+
+class Silent:
+    """Looked, and saw nothing worth reporting.
+
+    Not the same as no classifier at all, which is why there is no longer a
+    way to write that: a message nobody read is not a message found safe.
+    """
+
+    async def classify(self, message: str, locale: Locale) -> Classification:
+        return Classification()
+
+
+SILENT = Silent()
 
 
 class Insists:
@@ -58,7 +79,9 @@ async def test_a_report_of_trouble_reaches_a_person_before_anything_else_runs() 
 
 @pytest.mark.asyncio
 async def test_every_kind_of_trouble_in_the_message_is_carried_forward() -> None:
-    outcome = await triage("Someone hacked my account and used my card fraudulently")
+    outcome = await triage(
+        "Someone hacked my account and used my card fraudulently", classifier=SILENT
+    )
     assert outcome == Escalate(
         reasons=frozenset(
             {EscalationReason.ACCOUNT_COMPROMISE, EscalationReason.SUSPECTED_FRAUD}
@@ -68,7 +91,7 @@ async def test_every_kind_of_trouble_in_the_message_is_carried_forward() -> None
 
 @pytest.mark.asyncio
 async def test_a_policy_question_says_where_it_may_be_answered_from() -> None:
-    outcome = await triage("How long do I have to return a jacket?")
+    outcome = await triage("How long do I have to return a jacket?", classifier=SILENT)
     assert isinstance(outcome, Proceed)
     assert outcome.intent is Intent.RETURN_POLICY
     assert outcome.profile.required_sources == {Source.KNOWLEDGE_BASE}
@@ -108,7 +131,7 @@ async def test_a_classifier_that_cannot_place_it_either_asks_the_customer() -> N
 
 @pytest.mark.asyncio
 async def test_without_a_classifier_an_unplaced_message_asks_the_customer() -> None:
-    assert await triage("I need help with my purchase") == Clarify(
+    assert await triage("I need help with my purchase", classifier=SILENT) == Clarify(
         reason=ClarificationReason.UNRESOLVED_INTENT
     )
 
@@ -118,20 +141,23 @@ async def test_two_requests_get_a_question_rather_than_half_an_answer() -> None:
     outcome = await triage(
         "Where is my order, and can I return it once it arrives?",
         known=LINKED_WITH_ORDER,
+        classifier=SILENT,
     )
     assert outcome == Clarify(reason=ClarificationReason.MULTIPLE_INTENTS)
 
 
 @pytest.mark.asyncio
 async def test_a_missing_order_number_is_asked_for() -> None:
-    outcome = await triage("Where is my order?", known=LINKED)
+    outcome = await triage("Where is my order?", known=LINKED, classifier=SILENT)
     assert outcome == Clarify(reason=ClarificationReason.MISSING_ORDER_ID)
 
 
 @pytest.mark.asyncio
 async def test_an_unlinked_customer_goes_to_a_person() -> None:
     """They cannot supply what is missing, so asking them wastes their time."""
-    outcome = await triage("Where is my order?", known=frozenset({Input.ORDER_ID}))
+    outcome = await triage(
+        "Where is my order?", known=frozenset({Input.ORDER_ID}), classifier=SILENT
+    )
     assert outcome == Escalate(
         reasons=frozenset({EscalationReason.CUSTOMER_NOT_LINKED})
     )
@@ -140,7 +166,7 @@ async def test_an_unlinked_customer_goes_to_a_person() -> None:
 @pytest.mark.asyncio
 async def test_the_more_serious_absence_decides() -> None:
     """Both missing. Asking for an order number would not have helped."""
-    outcome = await triage("Where is my order?", known=frozenset())
+    outcome = await triage("Where is my order?", known=frozenset(), classifier=SILENT)
     assert outcome == Escalate(
         reasons=frozenset({EscalationReason.CUSTOMER_NOT_LINKED})
     )
@@ -148,7 +174,9 @@ async def test_the_more_serious_absence_decides() -> None:
 
 @pytest.mark.asyncio
 async def test_everything_present_proceeds() -> None:
-    outcome = await triage("Where is my order?", known=LINKED_WITH_ORDER)
+    outcome = await triage(
+        "Where is my order?", known=LINKED_WITH_ORDER, classifier=SILENT
+    )
     assert isinstance(outcome, Proceed)
     assert outcome.intent is Intent.ORDER_STATUS
     assert Source.HISTORY in outcome.sources
@@ -156,13 +184,15 @@ async def test_everything_present_proceeds() -> None:
 
 @pytest.mark.asyncio
 async def test_asking_after_an_unnamed_product_asks_which_one() -> None:
-    outcome = await triage("Is it still available?")
+    outcome = await triage("Is it still available?", classifier=SILENT)
     assert outcome == Clarify(reason=ClarificationReason.MISSING_PRODUCT_REFERENCE)
 
 
 @pytest.mark.asyncio
 async def test_chasing_a_refund_is_a_question_about_money_not_about_policy() -> None:
-    outcome = await triage("Where is my refund?", known=LINKED_WITH_ORDER)
+    outcome = await triage(
+        "Where is my refund?", known=LINKED_WITH_ORDER, classifier=SILENT
+    )
     assert isinstance(outcome, Proceed)
     assert outcome.intent is Intent.REFUND_STATUS
     assert outcome.profile.required_sources == {Source.COMMERCE}
@@ -190,14 +220,18 @@ async def test_a_model_cannot_hand_back_a_policy_the_rules_withheld() -> None:
 async def test_an_order_and_a_refund_are_still_two_questions() -> None:
     """Discarding the refund match answered the order half and said nothing."""
     outcome = await triage(
-        "Where is my order, and where is my refund?", known=LINKED_WITH_ORDER
+        "Where is my order, and where is my refund?",
+        known=LINKED_WITH_ORDER,
+        classifier=SILENT,
     )
     assert outcome == Clarify(reason=ClarificationReason.MULTIPLE_INTENTS)
 
 
 @pytest.mark.asyncio
 async def test_saying_an_order_turned_up_is_context_for_the_return() -> None:
-    outcome = await triage("My order arrived and I want to return it.")
+    outcome = await triage(
+        "My order arrived and I want to return it.", classifier=SILENT
+    )
     assert isinstance(outcome, Proceed)
     assert outcome.intent is Intent.RETURN_POLICY
 
@@ -279,3 +313,39 @@ async def test_a_message_the_rules_escalated_is_shown_to_nobody() -> None:
     """
     outcome = await triage("I was charged twice", classifier=MustNotBeAsked())
     assert outcome == Escalate(reasons=frozenset({EscalationReason.PAYMENT_DISPUTE}))
+
+
+class Down:
+    """A classifier that cannot answer today."""
+
+    async def classify(self, message: str, locale: Locale) -> Classification:
+        raise ClassifierUnavailableError("the provider timed out")
+
+
+@pytest.mark.asyncio
+async def test_a_message_nobody_could_read_is_not_a_message_found_safe() -> None:
+    """The failure used to leave the endpoint, which is the wrong place.
+
+    An ordinary question and a provider having a bad afternoon became a five
+    hundred. It is now a request somebody here picks up, because what is
+    missing is our reading of it and not anything the customer did.
+    """
+    outcome = await triage("Can I send this back?", classifier=Down())
+    assert outcome == Review(reason=ReviewReason.SAFETY_CHECK_UNAVAILABLE)
+
+
+@pytest.mark.asyncio
+async def test_danger_the_rules_saw_survives_the_model_being_down() -> None:
+    """It left before the call, so the call failing changes nothing."""
+    outcome = await triage("I was charged twice", classifier=Down())
+    assert outcome == Escalate(reasons=frozenset({EscalationReason.PAYMENT_DISPUTE}))
+
+
+def test_there_is_no_way_to_run_triage_without_a_safety_pass() -> None:
+    """It defaulted to None, so the guarantee held only where configured.
+
+    The message about a stranger using an account was placed as an ordinary
+    return by every caller that had not thought about it.
+    """
+    parameter = inspect.signature(triage).parameters["classifier"]
+    assert parameter.default is inspect.Parameter.empty

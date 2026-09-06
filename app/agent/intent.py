@@ -137,13 +137,24 @@ _RULES: dict[Intent, Sequence[str]] = {
 }
 
 
+class ClassifierUnavailableError(RuntimeError):
+    """The safety pass could not be completed.
+
+    Transient by definition: a timeout, a refused connection, a provider
+    having a bad afternoon. Implementations raise this rather than letting a
+    transport error out, because the request has to be able to tell "nothing
+    looked wrong" apart from "nobody looked".
+    """
+
+
 @dataclass(frozen=True)
 class Classification:
-    """What a model made of a message the rules could not place.
+    """What a model made of a message.
 
-    Both fields are answers. No intent means the message is still unclear and
-    the customer is asked; risks are trouble the phrase rules did not phrase,
-    which is the failure mode a fixed vocabulary has.
+    Both fields are answers, and an empty one means the model looked and found
+    nothing — not that it was never asked. No intent leaves the message
+    unplaced unless the rules placed it; no risks leaves the rules' verdict
+    standing.
     """
 
     intent: Intent | None = None
@@ -152,19 +163,24 @@ class Classification:
 
 @runtime_checkable
 class IntentClassifier(Protocol):
-    """A model consulted only where the rules recognised nothing.
+    """A model shown every message the risk rules let through.
 
-    It may name an intent the rules missed, and it may report trouble they did
-    not describe. It has no way to say that something is fine: there is no
-    value it can return that lowers a risk, so the only direction it moves a
-    request is towards a person. That asymmetry is why a model is allowed to
-    speak here at all.
+    That includes messages the phrases understood, because understanding what
+    somebody wants is a different job from noticing they are in trouble, and
+    only the second is still open once a phrase has matched.
 
-    It is never asked about a message the rules already placed or escalated.
+    What it is trusted with differs by kind. Danger it reports is acted on
+    whatever the rules concluded, since that can only move a request further
+    towards a person. An intent it offers counts only where the phrases found
+    none, so it cannot revisit a decision they reached.
+
+    It has no way to say a message is fine: nothing it returns lowers a risk,
+    and it is never shown a message the rules escalated. Where it cannot
+    answer at all it raises, and the request waits for somebody here.
     """
 
     async def classify(self, message: str, locale: Locale) -> Classification:
-        """Read a message the phrase rules made nothing of."""
+        """Read a message, or raise ClassifierUnavailableError trying."""
         ...
 
 
