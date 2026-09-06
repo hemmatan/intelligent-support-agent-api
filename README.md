@@ -368,6 +368,10 @@ The build context is filtered by `.dockerignore`: local environment files,
 virtual environments, repository history, databases and generated caches are
 never sent to the builder. Runtime assets remain available to the image.
 
+`requirements.txt` is the locked production dependency set used by the image.
+`requirements-dev.txt` adds the test, lint and type-check tools used during
+development; those tools are not installed in the runtime image.
+
 Neither is suitable for production as it stands. The image builds in a single
 stage, runs as root, and has no health check; `docker-compose.yml` bind-mounts
 the source tree. Known work before a production deployment:
@@ -376,8 +380,6 @@ the source tree. Known work before a production deployment:
 - A container health check and graceful shutdown handling.
 - PostgreSQL with persistent storage and migrations run as a one-shot service.
 - A production Compose file without source-code bind mounts.
-- A production dependency set. `requirements.txt` is currently exported with
-  `--extra dev`, so the image also installs pytest, mypy, Ruff and pre-commit.
 
 ## Known limitations
 
