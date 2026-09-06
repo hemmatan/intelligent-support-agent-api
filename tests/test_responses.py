@@ -61,6 +61,35 @@ def test_wording_cannot_name_a_claim_no_entry_states() -> None:
         )
 
 
+def test_wording_cannot_answer_with_a_figure_belonging_to_another_fact() -> None:
+    """Correct sentence, wrong question, filed as the answer to the other one.
+
+    Every field of a model stating the fact used to be fillable, rather than
+    the fields that state it. So the approved reply about standard delivery
+    could quote the express figure and be rated as covering the question.
+    """
+    with pytest.raises(ValueError, match="nothing stating"):
+        ResponseTemplate.model_validate(
+            {
+                **WORDING,
+                "fact": "standard_delivery_time",
+                "sentence": "Delivery takes {express_delivery_days} working day.",
+            }
+        )
+
+
+def test_a_fact_carried_by_two_figures_is_not_settled_by_one() -> None:
+    """A range quoted by its lower end is a shorter promise than the policy."""
+    with pytest.raises(ValueError, match="names only"):
+        ResponseTemplate.model_validate(
+            {
+                **WORDING,
+                "fact": "standard_delivery_time",
+                "sentence": "Delivery takes {standard_delivery_days_min} days.",
+            }
+        )
+
+
 def test_one_approved_way_to_say_a_thing_in_a_language() -> None:
     """Two would leave the choice to whichever loaded first."""
     with pytest.raises(ResponseTemplateError, match="two approved ways"):

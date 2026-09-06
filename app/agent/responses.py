@@ -74,14 +74,26 @@ class ResponseTemplate(BaseModel):
         named = set(_PLACEHOLDER.findall(self.sentence))
         if not named:
             raise ValueError("sentence names no claim, so nothing supports it")
-        fillable = {
-            field
+        # Only the fields mapped to this fact, not every field on a model that
+        # happens to state it. Allowing the rest let approved wording for the
+        # standard delivery time answer with the express figure: a correct
+        # sentence about the wrong thing, filed as the reply to the other
+        # question and rated as covering it.
+        stating = [
+            {field for field, stated in claims.STATES.items() if stated is self.fact}
             for claims in _STATED_BY.get(self.fact, [])
-            for field in claims.model_fields
-        }
-        unknown = named - fillable
+        ]
+        unknown = named - set().union(*stating) if stating else named
         if unknown:
-            raise ValueError(f"no entry stating {self.fact} declares {sorted(unknown)}")
+            raise ValueError(f"nothing stating {self.fact} declares {sorted(unknown)}")
+        # And all of them. A fact carried by two figures is not settled by one:
+        # a range quoted by its lower end alone is a shorter delivery promise
+        # than the policy makes.
+        if not any(fields <= named for fields in stating):
+            raise ValueError(
+                f"{self.fact} is stated by {sorted(set().union(*stating))}, and "
+                f"the sentence names only {sorted(named)}"
+            )
 
     @property
     def reference(self) -> str:
