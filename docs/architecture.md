@@ -418,8 +418,16 @@ routing correctness.
 ## Every decision is recorded before anything is sent
 
 Each request persists its intent, risk flags, source plan, evidence
-references, reliability factors, route and reason code, whether or not a
-customer ever sees a response.
+references, reliability factors and route, whether or not a customer ever sees
+a response.
+
+A reason code accompanies every outcome except a direct answer. That exception
+is deliberate. A reason names what stopped a request from being answered
+normally, and an answer given normally was stopped by nothing; a code invented
+to fill the column would be counted alongside the real ones and would make
+"how often do we escalate for missing coverage" a question about how many
+requests succeeded. What explains a delivery is the factor record, which is
+kept for every outcome and is where the case for sending it actually lives.
 
 This happens before delivery. A response that reached a customer without a
 record of why is the one case that cannot be investigated afterwards, and
