@@ -62,10 +62,31 @@ class PolicyClaims(BaseModel):
 
     STATES: ClassVar[Mapping[str, Fact]] = {}
 
+    # Approved wording for every value a named-choice field can take. A figure
+    # renders as itself in any language; "standard_items" does not, and the
+    # alternative is a slot that quietly puts an internal token in front of a
+    # customer.
+    WORDS: ClassVar[Mapping[str, Mapping[str, str]]] = {}
+
     @property
     def facts(self) -> frozenset[Fact]:
         """What this entry is able to settle."""
         return frozenset(self.STATES.values())
+
+    def slots(self, locale: str) -> dict[str, str]:
+        """Every claim as text a response template may place in a sentence.
+
+        Values are turned into words here rather than in the template, so one
+        approved wording serves every sentence that mentions a claim, and a
+        second template cannot describe the same value differently.
+        """
+        rendered: dict[str, str] = {}
+        for name, value in self.model_dump().items():
+            if isinstance(value, str):
+                rendered[name] = self.WORDS[value][locale]
+            else:
+                rendered[name] = str(value)
+        return rendered
 
 
 class ReturnPolicyClaims(PolicyClaims):
@@ -77,6 +98,12 @@ class ReturnPolicyClaims(PolicyClaims):
     STATES: ClassVar[Mapping[str, Fact]] = {
         "return_window_days": Fact.RETURN_WINDOW,
         "eligibility": Fact.RETURN_ELIGIBILITY,
+    }
+
+    WORDS: ClassVar[Mapping[str, Mapping[str, str]]] = {
+        "standard_items": {"en": "Most items", "fr": "La plupart des articles"},
+        "all_items": {"en": "All items", "fr": "Tous les articles"},
+        "selected_items": {"en": "Selected items", "fr": "Certains articles"},
     }
 
 

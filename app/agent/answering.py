@@ -23,6 +23,7 @@ from app.agent.reasons import (
     ReviewReason,
 )
 from app.agent.reliability import Assessment, Factor, ReliabilityLevel, Route
+from app.agent.responses import NothingApprovedToSayError, TemplateLibrary
 from app.agent.retrieval import Hit, PolicyIndex, relevance_of
 from app.agent.triage import Proceed, Review, UnexplainedEscalationError
 
@@ -62,14 +63,34 @@ class Handover:
             raise UnexplainedEscalationError("an escalation must say why")
 
 
+class MisdirectedReplyError(ValueError):
+    """Customer wording where none is going to a customer, or missing where it is.
+
+    Both directions are faults. Text attached to a queue entry is text a
+    reviewer may read as already sent; a delivery with nothing to deliver is a
+    silence the customer has to interpret.
+    """
+
+
 @dataclass(frozen=True)
 class Plan:
-    """Evidence that survived the gates, and what it is rated at."""
+    """Evidence that survived the gates, what it is rated at, and what it says."""
 
     intent: Intent
     requested: frozenset[Fact]
     assessment: Assessment
     citations: tuple[Citation, ...]
+    reply: str | None = None
+    said: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        going_out = self.route is Route.DIRECT_RESPONSE
+        if going_out and not self.reply:
+            raise MisdirectedReplyError("a direct answer has to say something")
+        if not going_out and self.reply is not None:
+            raise MisdirectedReplyError(
+                f"a {self.route} carries wording written for a customer"
+            )
 
     @property
     def route(self) -> Route:
@@ -149,7 +170,9 @@ def _rate(
     )
 
 
-async def plan_for(proceed: Proceed, *, sources: Sources) -> Outcome:
+async def plan_for(
+    proceed: Proceed, *, sources: Sources, templates: TemplateLibrary
+) -> Outcome:
     """Gather what this request is allowed to gather, and rate it.
 
     The request arrives whole. What was asked and what it was taken to mean
@@ -189,9 +212,26 @@ async def plan_for(proceed: Proceed, *, sources: Sources) -> Outcome:
             default=ReliabilityLevel.UNUSABLE,
         ),
     }
+    assessment = _rate(profile, measured)
+    if assessment.route is not Route.DIRECT_RESPONSE:
+        return Plan(
+            intent=proceed.intent,
+            requested=requested,
+            assessment=assessment,
+            citations=citations,
+        )
+
+    try:
+        reply, said = templates.say(requested, best.entry, proceed.locale)
+    except NothingApprovedToSayError:
+        # The evidence was good enough. Nobody has written the sentence.
+        return Review(reason=ReviewReason.NOTHING_APPROVED_TO_SAY)
+
     return Plan(
         intent=proceed.intent,
         requested=requested,
-        assessment=_rate(profile, measured),
+        assessment=assessment,
         citations=citations,
+        reply=reply,
+        said=said,
     )

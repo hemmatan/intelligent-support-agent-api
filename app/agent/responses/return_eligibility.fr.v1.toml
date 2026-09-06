@@ -1,0 +1,5 @@
+fact = "return_eligibility"
+locale = "fr"
+version = 1
+approved = true
+sentence = "{eligibility} peuvent être retournés s'ils sont non portés et dans leur emballage d'origine."

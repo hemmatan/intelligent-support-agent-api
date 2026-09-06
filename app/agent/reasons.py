@@ -82,6 +82,10 @@ class ReviewReason(StrEnum):
     # than the service is willing to answer on.
     SAFETY_CHECK_UNAVAILABLE = "safety_check_unavailable"
 
+    # The evidence was good enough and there is no approved way to say it.
+    # A gap in the phrase book, which somebody here can close by writing one.
+    NOTHING_APPROVED_TO_SAY = "nothing_approved_to_say"
+
 
 class EvidenceReason(StrEnum):
     """Which rating held an answer back, once the gates had all passed.

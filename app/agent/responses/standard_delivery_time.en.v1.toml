@@ -1,0 +1,5 @@
+fact = "standard_delivery_time"
+locale = "en"
+version = 1
+approved = true
+sentence = "Standard delivery takes {standard_delivery_days_min} to {standard_delivery_days_max} working days."

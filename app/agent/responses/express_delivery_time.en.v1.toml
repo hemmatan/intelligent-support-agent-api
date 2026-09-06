@@ -1,0 +1,5 @@
+fact = "express_delivery_time"
+locale = "en"
+version = 1
+approved = true
+sentence = "Express delivery arrives within {express_delivery_days} working day."

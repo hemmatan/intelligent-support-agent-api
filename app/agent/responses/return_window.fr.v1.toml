@@ -1,0 +1,5 @@
+fact = "return_window"
+locale = "fr"
+version = 1
+approved = true
+sentence = "Les retours sont acceptés dans les {return_window_days} jours suivant la livraison."
