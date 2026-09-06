@@ -8,6 +8,7 @@ from app.agent.answering import Handover, Plan
 from app.agent.answering import Review as PlanReview
 from app.agent.enquiry import MAX_MESSAGE
 from app.agent.intent import Intent
+from app.agent.knowledge import Locale
 from app.agent.messages import load_messages
 from app.agent.profiles import Source
 from app.agent.reasons import (
@@ -37,8 +38,16 @@ REPLIES: TypeAdapter[SupportReply] = TypeAdapter(SupportReply)
 BOOK = load_messages()
 
 
-def spoken(outcome: object, locale: str = "en") -> SupportReply:
-    return replied(outcome, messages=BOOK, locale=locale)  # type: ignore[arg-type]
+CASE = "11111111-2222-3333-4444-555555555555"
+
+
+def spoken(outcome: object, locale: Locale = "en") -> SupportReply:
+    return replied(
+        outcome,  # type: ignore[arg-type]
+        messages=BOOK,
+        locale=locale,
+        case=CASE,
+    )
 
 
 READY = Assessment(required={Factor.COVERAGE: ReliabilityLevel.READY})
@@ -259,7 +268,7 @@ def test_a_generated_client_is_told_how_to_choose_between_the_shapes() -> None:
 
 
 @pytest.mark.parametrize("locale", ["en", "fr"], ids=["english", "french"])
-def test_nothing_reaches_a_customer_as_a_bare_code(locale: str) -> None:
+def test_nothing_reaches_a_customer_as_a_bare_code(locale: Locale) -> None:
     """A code is not something to show anybody.
 
     Being asked, being handed on and being held back are three of the four
@@ -355,3 +364,15 @@ def test_whitespace_is_not_something_to_send_anybody(blank: str) -> None:
         REPLIES.validate_python({**answer, "reply": blank})
     with pytest.raises(ValidationError, match="wording"):
         REPLIES.validate_python({**answer, "wording": [blank]})
+
+
+def test_every_reply_names_the_record_it_was_written_into() -> None:
+    """A customer can quote it, and an auditor can find the decision behind it."""
+    for outcome in (
+        answered(),
+        Clarify(ClarificationReason.MISSING_ORDER_ID),
+        Escalate(frozenset({RiskReason.PAYMENT_DISPUTE})),
+        TriageReview(ReviewReason.SOURCE_UNAVAILABLE),
+        stopped(SUNK),
+    ):
+        assert spoken(outcome).case == CASE, outcome

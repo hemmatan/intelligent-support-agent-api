@@ -7,9 +7,10 @@ from fastapi import APIRouter, Depends, Request
 
 from app.agent.enquiry import Enquiry
 from app.agent.knowledge import Locale
-from app.api.deps import AuthUserDep
+from app.api.deps import AuthUserDep, DBSessionDep
 from app.models.user import User
 from app.schemas.support import SupportMessage, SupportReply
+from app.services.cases import DatabaseCases
 from app.services.support import SupportAgent
 
 _log = logging.getLogger(__name__)
@@ -55,7 +56,10 @@ def _language_of(customer: User) -> Locale:
 
 @router.post("/messages")
 async def answer_message(
-    sent: SupportMessage, customer: AuthUserDep, agent: SupportAgentDep
+    sent: SupportMessage,
+    customer: AuthUserDep,
+    agent: SupportAgentDep,
+    db: DBSessionDep,
 ) -> SupportReply:
     """Answer a customer's question, or say why it is not being answered.
 
@@ -70,5 +74,7 @@ async def answer_message(
             customer=customer.external_customer_id,
             order=sent.order_id,
             product=sent.product_reference,
-        )
+        ),
+        cases=DatabaseCases(db),
+        customer=customer.id,
     )

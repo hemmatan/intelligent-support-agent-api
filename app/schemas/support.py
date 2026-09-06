@@ -123,6 +123,7 @@ class Answer(BaseModel):
     model_config = _EXACT
 
     route: Literal[Route.DIRECT_RESPONSE] = Route.DIRECT_RESPONSE
+    case: Said
     intent: Intent
     reply: Said
     citations: list[Citation] = Field(min_length=1)
@@ -146,6 +147,7 @@ class Clarification(BaseModel):
     model_config = _EXACT
 
     route: Literal[Route.CLARIFICATION] = Route.CLARIFICATION
+    case: Said
     reason: ClarificationReason
     message: Said
     wording: Said
@@ -163,6 +165,7 @@ class Escalation(BaseModel):
     model_config = _EXACT
 
     route: Literal[Route.HUMAN_ESCALATION] = Route.HUMAN_ESCALATION
+    case: Said
     reasons: list[EscalationReason | EvidenceReason] = Field(min_length=1)
     message: Said
     wording: Said
@@ -175,6 +178,7 @@ class InternalReview(BaseModel):
     model_config = _EXACT
 
     route: Literal[Route.INTERNAL_REVIEW] = Route.INTERNAL_REVIEW
+    case: Said
     reasons: list[ReviewReason | EvidenceReason] = Field(min_length=1)
     message: Said
     wording: Said
@@ -210,6 +214,7 @@ def replied(
     *,
     messages: MessageBook,
     locale: Locale,
+    case: str,
 ) -> SupportReply:
     """Turn a decision into the one shape that can express it.
 
@@ -219,21 +224,27 @@ def replied(
     """
     match outcome:
         case Escalate():
-            return _escalated(sorted(outcome.reasons, key=str), messages, locale)
+            return _escalated(sorted(outcome.reasons, key=str), messages, locale, case)
         case Clarify():
             said = messages.tell([outcome.reason], locale, Route.CLARIFICATION)
             return Clarification(
-                reason=outcome.reason, message=said.sentence, wording=said.cited
+                case=case,
+                reason=outcome.reason,
+                message=said.sentence,
+                wording=said.cited,
             )
         case TriageReview() | PlanReview():
             said = messages.tell([outcome.reason], locale, Route.INTERNAL_REVIEW)
             return InternalReview(
-                reasons=[outcome.reason], message=said.sentence, wording=said.cited
+                case=case,
+                reasons=[outcome.reason],
+                message=said.sentence,
+                wording=said.cited,
             )
         case Handover():
-            return _escalated(sorted(outcome.reasons, key=str), messages, locale)
+            return _escalated(sorted(outcome.reasons, key=str), messages, locale, case)
         case Plan():
-            return _from_plan(outcome, messages, locale)
+            return _from_plan(outcome, messages, locale, case)
     raise TypeError(f"{outcome!r} is not an outcome")
 
 
@@ -241,10 +252,12 @@ def _escalated(
     reasons: list[EscalationReason | EvidenceReason],
     messages: MessageBook,
     locale: Locale,
+    case: str,
     reliability: Reliability | None = None,
 ) -> Escalation:
     said = messages.tell(reasons, locale, Route.HUMAN_ESCALATION)
     return Escalation(
+        case=case,
         reasons=reasons,
         message=said.sentence,
         wording=said.cited,
@@ -252,13 +265,16 @@ def _escalated(
     )
 
 
-def _from_plan(plan: Plan, messages: MessageBook, locale: Locale) -> SupportReply:
+def _from_plan(
+    plan: Plan, messages: MessageBook, locale: Locale, case: str
+) -> SupportReply:
     reasons = sorted(plan.reasons, key=str)
     if plan.route is Route.HUMAN_ESCALATION:
-        return _escalated(list(reasons), messages, locale, _reliability(plan))
+        return _escalated(list(reasons), messages, locale, case, _reliability(plan))
     if plan.route is Route.INTERNAL_REVIEW:
         said = messages.tell(list(reasons), locale, Route.INTERNAL_REVIEW)
         return InternalReview(
+            case=case,
             reasons=list(reasons),
             message=said.sentence,
             wording=said.cited,
@@ -266,6 +282,7 @@ def _from_plan(plan: Plan, messages: MessageBook, locale: Locale) -> SupportRepl
         )
     assert plan.reply is not None  # the type refuses a direct answer without one
     return Answer(
+        case=case,
         intent=plan.intent,
         reply=plan.reply.text,
         citations=[

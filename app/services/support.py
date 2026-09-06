@@ -20,6 +20,7 @@ from app.agent.responses import TemplateLibrary
 from app.agent.triage import Clarify, Escalate, Proceed, triage
 from app.agent.triage import Review as TriageReview
 from app.schemas.support import SupportReply, replied
+from app.services.cases import CaseRecorder, new_reference
 
 
 @dataclass(frozen=True)
@@ -34,17 +35,32 @@ class SupportAgent:
     # can be exercised without a model existing.
     classifier: IntentClassifier | None = None
 
-    async def answer(self, enquiry: Enquiry) -> SupportReply:
-        """Decide what to do with a question, then do only that.
+    async def answer(
+        self, enquiry: Enquiry, *, cases: CaseRecorder, customer: int
+    ) -> SupportReply:
+        """Decide what to do with a question, write it down, then answer.
+
+        The record is written before the reply is returned, and a failure to
+        write it is a failure to reply. Telling somebody their message has
+        reached a colleague, with nothing put anywhere a colleague looks, is
+        not a routing decision; it is an untrue sentence.
 
         The language comes off the enquiry rather than being passed in beside
         it, so what a customer is told and what they asked cannot end up in
         different languages.
         """
+        reference = new_reference()
         decided = await triage(enquiry, classifier=self.classifier)
         reached: Outcome | Escalate | Clarify | TriageReview = (
             await plan_for(decided, sources=self.sources, templates=self.templates)
             if isinstance(decided, Proceed)
             else decided
         )
-        return replied(reached, messages=self.messages, locale=enquiry.locale)
+        reply = replied(
+            reached,
+            messages=self.messages,
+            locale=enquiry.locale,
+            case=reference,
+        )
+        await cases.record(reference, enquiry, reply, customer)
+        return reply

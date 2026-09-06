@@ -7,10 +7,11 @@ from itertools import count
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.answering import Sources
-from app.agent.enquiry import MAX_MESSAGE
+from app.agent.enquiry import MAX_MESSAGE, Enquiry
 from app.agent.intent import ClassifierUnavailableError, Intent
 from app.agent.knowledge import Locale, load_corpus
 from app.agent.messages import load_messages
@@ -18,7 +19,10 @@ from app.agent.responses import load_templates
 from app.agent.retrieval import PolicyIndex
 from app.api.support import support_agent
 from app.core.security import create_access_token
+from app.models.support import SupportCase
 from app.models.user import User
+from app.schemas.support import SupportReply
+from app.services.cases import NEEDS_SOMEBODY
 from app.services.support import SupportAgent
 from main import app
 
@@ -436,3 +440,127 @@ async def test_a_request_held_here_does_not_claim_to_have_gone_elsewhere(
     assert held.json()["reasons"] == passed.json()["reasons"]
     assert "checking your request" in held.json()["message"]
     assert "transmis" in passed.json()["message"]
+
+
+@pytest.mark.asyncio
+async def test_saying_it_reached_a_person_means_it_reached_the_queue(
+    async_client: AsyncClient,
+    wired: None,
+    signed_in: Callable[..., object],
+    session: AsyncSession,
+) -> None:
+    """The sentence was true of nothing until there was a row behind it.
+
+    A customer was told their message had gone to a colleague while the
+    service returned and forgot it. Nothing was written down, so nothing was
+    anywhere a colleague would look.
+    """
+    headers = await signed_in()  # type: ignore[misc]
+    response = await async_client.post(
+        MESSAGES, json={"message": "I was charged twice"}, headers=headers
+    )
+    body = response.json()
+    assert body["route"] == "human_escalation"
+
+    case = (
+        await session.execute(
+            select(SupportCase).where(SupportCase.reference == body["case"])
+        )
+    ).scalar_one()
+    assert case.route == "human_escalation"
+    assert case.reasons == ["payment_dispute"]
+    assert case.message == "I was charged twice"
+    assert case.reply is None
+    assert case.wording == [body["wording"]]
+    # Open, which is what makes this a queue and not a log.
+    assert case.closed_at is None
+
+
+@pytest.mark.asyncio
+async def test_an_answer_that_went_out_is_written_down_too(
+    async_client: AsyncClient,
+    wired: None,
+    signed_in: Callable[..., object],
+    session: AsyncSession,
+) -> None:
+    """Every decision, not only the ones somebody has to pick up.
+
+    A reply nobody kept a record of is the one that cannot be looked into,
+    and it is the one that reached a customer.
+    """
+    headers = await signed_in()  # type: ignore[misc]
+    response = await async_client.post(
+        MESSAGES,
+        json={"message": "How long do I have to return a jacket?"},
+        headers=headers,
+    )
+    body = response.json()
+    case = (
+        await session.execute(
+            select(SupportCase).where(SupportCase.reference == body["case"])
+        )
+    ).scalar_one()
+    assert case.route == "direct_response"
+    assert case.intent == "return_policy"
+    assert case.reply == body["reply"]
+    assert case.citations[0]["reference"] == "kb:returns.standard.en.v1"
+    assert case.wording == body["wording"]
+    assert case.reliability is not None
+    assert case.reliability["level"] == "acceptable"
+
+
+@pytest.mark.asyncio
+async def test_what_a_person_has_to_work_can_be_found(
+    async_client: AsyncClient,
+    wired: None,
+    signed_in: Callable[..., object],
+    session: AsyncSession,
+) -> None:
+    """The queue is a query, and answered requests are not in it."""
+    headers = await signed_in()  # type: ignore[misc]
+    for message in (
+        "I was charged twice",
+        "Where is my order?",
+        "How long do I have to return a jacket?",
+    ):
+        await async_client.post(MESSAGES, json={"message": message}, headers=headers)
+
+    waiting = (
+        (
+            await session.execute(
+                select(SupportCase).where(
+                    SupportCase.route.in_([str(r) for r in NEEDS_SOMEBODY]),
+                    SupportCase.closed_at.is_(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert [case.message for case in waiting] == ["I was charged twice"]
+
+
+@pytest.mark.asyncio
+async def test_a_record_that_cannot_be_written_is_not_answered_around(
+    agent: SupportAgent,
+) -> None:
+    """Losing the record quietly is how the false sentence came back.
+
+    A reply returned with nothing behind it is exactly the state this was
+    added to prevent, so a failure to write is a failure to reply.
+    """
+
+    class Broken:
+        async def record(
+            self,
+            reference: str,
+            enquiry: Enquiry,
+            reply: SupportReply,
+            customer: int,
+        ) -> None:
+            raise RuntimeError("the queue is down")
+
+    with pytest.raises(RuntimeError, match="the queue is down"):
+        await agent.answer(
+            Enquiry(message="I was charged twice"), cases=Broken(), customer=1
+        )
