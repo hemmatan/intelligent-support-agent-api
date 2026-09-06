@@ -17,12 +17,12 @@ from app.agent.answering import (
 from app.agent.enquiry import Enquiry
 from app.agent.facts import Fact
 from app.agent.intent import Intent
-from app.agent.knowledge import load_corpus
+from app.agent.knowledge import Locale, load_corpus
 from app.agent.profiles import Source, profile_for
 from app.agent.reasons import BlockedReason, EvidenceReason, ReviewReason
 from app.agent.reliability import Assessment, Factor, ReliabilityLevel, Route
 from app.agent.responses import ApprovedReply, TemplateLibrary, load_templates
-from app.agent.retrieval import PolicyIndex
+from app.agent.retrieval import Hit, PolicyIndex
 from app.agent.triage import Proceed, UnexplainedEscalationError
 
 
@@ -112,6 +112,44 @@ async def test_a_source_nobody_wired_up_waits_for_somebody_here(
             enquiry=Enquiry(message="Where is my order?"),
         ),
         sources=sources,
+        templates=templates,
+    )
+    assert outcome == Review(reason=ReviewReason.SOURCE_UNAVAILABLE)
+
+
+class _RefusesToBeAsked:
+    """An index that fails the run if anything consults it.
+
+    A spy counting calls and asserting nought passes equally well having never
+    been connected to anything. Reaching this one at all is the failure, so it
+    cannot report a guarantee it was not in a position to observe.
+    """
+
+    async def search(self, query: str, locale: Locale) -> list[Hit]:
+        raise AssertionError("a source was read before the gate had run")
+
+
+@pytest.mark.asyncio
+async def test_the_gate_decides_before_a_source_is_read(
+    templates: TemplateLibrary,
+) -> None:
+    """Ordering is the guarantee, and nothing here was checking it.
+
+    The test above arrives at its verdict whether or not anything was read.
+    The knowledge base holds documents that mention orders, so a search
+    running ahead of the gate would come back with hits, the gate would refuse
+    the request regardless, and the assertion would not move. Nothing is
+    fetched on a message's behalf until the request has been placed, and until
+    now that held at this layer by arrangement rather than by test.
+    """
+    outcome = await plan_for(
+        Proceed(
+            intent=Intent.ORDER_STATUS,
+            enquiry=Enquiry(message="Where is my order?"),
+        ),
+        # Not a PolicyIndex, and it does not need to be: the only thing being
+        # observed is whether anything reaches it.
+        sources=Sources(knowledge_base=_RefusesToBeAsked()),  # type: ignore[arg-type]
         templates=templates,
     )
     assert outcome == Review(reason=ReviewReason.SOURCE_UNAVAILABLE)

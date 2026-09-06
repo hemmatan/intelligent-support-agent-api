@@ -180,26 +180,46 @@ def _rate(
     )
 
 
-async def plan_for(
+def _authority_over(
+    profile: DecisionProfile, citations: tuple[Citation, ...]
+) -> ReliabilityLevel:
+    """How far the sources actually cited may carry a claim of this kind.
+
+    Read off what was cited rather than off everything the profile permits.
+    A minimum taken across the whole plan would drag every answer down to the
+    level of its weakest permitted source: history is contextual on all five
+    profiles, so a reply the knowledge base supported in full would be held
+    back by a source it never leaned on.
+
+    Citing nothing is UNUSABLE rather than vacuously ready. An empty minimum
+    has no answer to give, and the generous one would let a reply resting on
+    no evidence rate as fully authoritative.
+
+    Kept where every planner reaches it, because this is an argument about
+    what authority means rather than a step in reading one kind of source.
+    Worked out a second time somewhere else, it is free to come out different.
+    """
+    return min(
+        (profile.authority_of(cited.source) for cited in citations),
+        default=ReliabilityLevel.UNUSABLE,
+    )
+
+
+async def _from_knowledge_base(
     proceed: Proceed, *, sources: Sources, templates: TemplateLibrary
 ) -> Outcome:
-    """Gather what this request is allowed to gather, and rate it.
+    """Answering out of written policy: rank, cite the winner, rate, say it.
 
-    The request arrives whole. What was asked and what it was taken to mean
-    are one value, so there is no call in which they describe different
-    things.
+    Ranking is what makes this shape its own. There is a leading entry and
+    there are the ones it beat, so how well it matched is a quantity somebody
+    can go and measure. Against a record that either exists or does not there
+    are no runners-up and nothing to measure, which is why a source is planned
+    for here instead of inside one function holding every shape at once.
 
-    Authority is taken over the sources actually cited, not over everything
-    reachable. Rating the whole plan would drag every answer down to the level
-    of its weakest permitted source: history is contextual on all five
-    profiles, so an answer the knowledge base supported in full would be held
-    back because a source it never leaned on is not authoritative.
+    Finding nothing is a gate and not a poor score. Scored, the strong ratings
+    beside it would carry an empty answer out to somebody.
     """
     profile = proceed.profile
-
-    missing = profile.required_sources - sources.available
-    if missing:
-        return Review(reason=ReviewReason.SOURCE_UNAVAILABLE)
 
     hits = await sources.search(proceed.enquiry.message, proceed.enquiry.locale)
     if not hits:
@@ -217,10 +237,7 @@ async def plan_for(
     measured = {
         Factor.RELEVANCE: relevance_of(hits),
         Factor.COVERAGE: coverage_of(requested, best.entry.facts),
-        Factor.AUTHORITY: min(
-            (profile.authority_of(cited.source) for cited in citations),
-            default=ReliabilityLevel.UNUSABLE,
-        ),
+        Factor.AUTHORITY: _authority_over(profile, citations),
     }
     assessment = _rate(profile, measured)
     if assessment.route is not Route.DIRECT_RESPONSE:
@@ -244,3 +261,27 @@ async def plan_for(
         citations=citations,
         reply=reply,
     )
+
+
+async def plan_for(
+    proceed: Proceed, *, sources: Sources, templates: TemplateLibrary
+) -> Outcome:
+    """See that a request can be served at all, then go and serve it.
+
+    The request arrives whole. What was asked and what it was taken to mean
+    are one value, so there is no call in which they describe different
+    things.
+
+    Nothing is read here. Whether the sources a profile calls for are
+    connected is decided the same way whichever ones they are, and deciding it
+    before any of them is approached is what keeps a request away from the
+    ones that happen to be running: an order is a matter for commerce, and the
+    knowledge base is full of documents that mention orders.
+    """
+    profile = proceed.profile
+
+    missing = profile.required_sources - sources.available
+    if missing:
+        return Review(reason=ReviewReason.SOURCE_UNAVAILABLE)
+
+    return await _from_knowledge_base(proceed, sources=sources, templates=templates)
