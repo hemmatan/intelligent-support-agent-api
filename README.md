@@ -372,11 +372,15 @@ never sent to the builder. Runtime assets remain available to the image.
 `requirements-dev.txt` adds the test, lint and type-check tools used during
 development; those tools are not installed in the runtime image.
 
-Neither is suitable for production as it stands. The image builds in a single
-stage, runs as root, and has no health check; `docker-compose.yml` bind-mounts
-the source tree. Known work before a production deployment:
+The image uses a multi-stage `python:3.11-slim` build. Dependencies are
+installed outside the runtime stage, which receives only the virtual
+environment, application code, migrations, startup script and served assets.
 
-- A multi-stage build on `python:3.11-slim` with a non-root runtime user.
+The setup is not suitable for production as it stands. The image still runs as
+root and has no health check; `docker-compose.yml` bind-mounts the source tree.
+Known work before a production deployment:
+
+- A non-root runtime user with ownership limited to the files it needs.
 - A container health check and graceful shutdown handling.
 - PostgreSQL with persistent storage and migrations run as a one-shot service.
 - A production Compose file without source-code bind mounts.
