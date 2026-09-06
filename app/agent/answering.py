@@ -121,14 +121,12 @@ def _rate(
     )
 
 
-async def plan_for(
-    proceed: Proceed,
-    message: str,
-    *,
-    sources: Sources,
-    locale: Locale = "en",
-) -> Outcome:
+async def plan_for(proceed: Proceed, *, sources: Sources) -> Outcome:
     """Gather what this request is allowed to gather, and rate it.
+
+    The request arrives whole. What was asked and what it was taken to mean
+    are one value, so there is no call in which they describe different
+    things.
 
     Authority is taken over the sources actually cited, not over everything
     reachable. Rating the whole plan would drag every answer down to the level
@@ -142,7 +140,7 @@ async def plan_for(
     if missing:
         return Review(reason=ReviewReason.SOURCE_UNAVAILABLE)
 
-    hits = await sources.search(message, locale)
+    hits = await sources.search(proceed.message, proceed.locale)
     if not hits:
         return Handover(reasons=frozenset({EscalationReason.NO_SUPPORTING_EVIDENCE}))
 
@@ -154,7 +152,7 @@ async def plan_for(
             content_hash=best.entry.content_hash,
         ),
     )
-    requested = facts_in(message)
+    requested = facts_in(proceed.message)
     measured = {
         Factor.RELEVANCE: relevance_of(hits),
         Factor.COVERAGE: coverage_of(requested, best.entry.facts),

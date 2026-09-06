@@ -1,5 +1,7 @@
 """What happens to a message before anything is asked on its behalf."""
 
+from dataclasses import fields
+
 import pytest
 
 from app.agent.intent import Classification, Intent
@@ -197,10 +199,14 @@ def test_a_plan_cannot_be_given_a_profile_belonging_to_something_else() -> None:
     """It held both and nothing compared them.
 
     A return-policy request carrying the order-status profile is a request
-    authorised to read commerce, which nothing about it justified.
+    authorised to read commerce, which nothing about it justified. There is
+    no longer a field to put one in: it is looked up from the intent, so the
+    two cannot be set to disagree.
     """
-    with pytest.raises(TypeError):
-        Proceed(Intent.RETURN_POLICY, profile_for(Intent.ORDER_STATUS))  # type: ignore[call-arg]
+    assert "profile" not in {field.name for field in fields(Proceed)}
+    for intent in Intent:
+        carried = Proceed(intent=intent, message="anything").profile
+        assert carried is profile_for(intent)
 
 
 @pytest.mark.asyncio

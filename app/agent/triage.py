@@ -52,9 +52,17 @@ class Clarify:
 
 @dataclass(frozen=True)
 class Proceed:
-    """Enough is known to go and look, and this is where looking is allowed."""
+    """Enough is known to go and look, and this is where looking is allowed.
+
+    The message travels with the reading of it. Handing the two along
+    separately let a request be gathered for one question and labelled with
+    another: every rating correct, and about different things. It is the same
+    hazard as carrying a profile beside an intent, one step further out.
+    """
 
     intent: Intent
+    message: str
+    locale: Locale = "en"
 
     @property
     def profile(self) -> DecisionProfile:
@@ -131,4 +139,4 @@ async def triage(
             return Escalate(reasons=frozenset({reason}))
         return Clarify(reason=reason)
 
-    return Proceed(intent=intent)
+    return Proceed(intent=intent, message=message, locale=locale)

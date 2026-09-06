@@ -1,5 +1,7 @@
 """Gathering what a placed request may gather, and rating what came back."""
 
+import inspect
+
 import pytest
 
 from app.agent.answering import (
@@ -40,10 +42,12 @@ async def test_coverage_is_the_only_thing_standing_between_this_and_a_customer(
     return window offered to somebody asking when their parcel arrives.
     """
     outcome = await plan_for(
-        Proceed(intent=Intent.SHIPPING_POLICY),
-        "Quel est le delai de livraison ?",
+        Proceed(
+            intent=Intent.SHIPPING_POLICY,
+            message="Quel est le delai de livraison ?",
+            locale="fr",
+        ),
         sources=sources,
-        locale="fr",
     )
     assert isinstance(outcome, Plan)
     assert [cited.reference for cited in outcome.citations] == [
@@ -67,8 +71,7 @@ async def test_coverage_is_the_only_thing_standing_between_this_and_a_customer(
 @pytest.mark.asyncio
 async def test_a_question_the_corpus_answers_is_answered(sources: Sources) -> None:
     outcome = await plan_for(
-        Proceed(intent=Intent.SHIPPING_POLICY),
-        "How long does delivery take?",
+        Proceed(intent=Intent.SHIPPING_POLICY, message="How long does delivery take?"),
         sources=sources,
     )
     assert isinstance(outcome, Plan)
@@ -89,7 +92,8 @@ async def test_a_source_nobody_wired_up_waits_for_somebody_here(
     the knowledge base is full of documents that mention orders.
     """
     outcome = await plan_for(
-        Proceed(intent=Intent.ORDER_STATUS), "Where is my order?", sources=sources
+        Proceed(intent=Intent.ORDER_STATUS, message="Where is my order?"),
+        sources=sources,
     )
     assert outcome == Review(reason=ReviewReason.SOURCE_UNAVAILABLE)
 
@@ -98,8 +102,7 @@ async def test_a_source_nobody_wired_up_waits_for_somebody_here(
 async def test_nothing_found_is_a_gate_and_not_a_low_score(sources: Sources) -> None:
     """Scoring it would let strong ratings elsewhere carry an empty answer."""
     outcome = await plan_for(
-        Proceed(intent=Intent.RETURN_POLICY),
-        "Do you ship to Belgium?",
+        Proceed(intent=Intent.RETURN_POLICY, message="Do you ship to Belgium?"),
         sources=sources,
     )
     assert outcome == Handover(
@@ -118,8 +121,10 @@ async def test_a_source_the_answer_never_leaned_on_does_not_hold_it_back(
     queue — including answers the knowledge base supported by itself.
     """
     outcome = await plan_for(
-        Proceed(intent=Intent.RETURN_POLICY),
-        "How long do I have to return a jacket?",
+        Proceed(
+            intent=Intent.RETURN_POLICY,
+            message="How long do I have to return a jacket?",
+        ),
         sources=sources,
     )
     assert isinstance(outcome, Plan)
@@ -134,8 +139,10 @@ async def test_a_citation_can_outlive_the_text_it_points_at(
 ) -> None:
     """An edit without a version bump keeps the reference and moves the hash."""
     outcome = await plan_for(
-        Proceed(intent=Intent.RETURN_POLICY),
-        "How long do I have to return a jacket?",
+        Proceed(
+            intent=Intent.RETURN_POLICY,
+            message="How long do I have to return a jacket?",
+        ),
         sources=sources,
     )
     assert isinstance(outcome, Plan)
@@ -160,3 +167,23 @@ def test_a_required_factor_nobody_measured_sinks_the_answer() -> None:
     assessed = _rate(orders, {Factor.AUTHORITY: ReliabilityLevel.READY})
     assert assessed.required[Factor.FRESHNESS] is ReliabilityLevel.UNUSABLE
     assert assessed.route is Route.HUMAN_ESCALATION
+
+
+def test_a_reading_cannot_exist_apart_from_what_was_read() -> None:
+    """Passed separately, they could describe different requests.
+
+    A return-policy reading of a delivery question gathered the shipping
+    entry, rated every factor correctly, and came out a direct response
+    labelled as being about returns. A template chosen from that label would
+    have quoted a return window off shipping evidence. There is now no reading
+    without its message, and nowhere to hand a second one in.
+    """
+    with pytest.raises(TypeError):
+        Proceed(intent=Intent.RETURN_POLICY)  # type: ignore[call-arg]
+
+    positional = [
+        name
+        for name, parameter in inspect.signature(plan_for).parameters.items()
+        if parameter.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
+    ]
+    assert positional == ["proceed"]
