@@ -7,6 +7,7 @@ import pytest
 from app.agent.knowledge import Locale
 from app.agent.messages import (
     _FIRST,
+    DEFAULT_MESSAGE_DIR,
     MessageBook,
     MessageKey,
     NothingToTellThemError,
@@ -187,3 +188,44 @@ def test_no_shipped_sentence_states_a_figure() -> None:
     """Read off the files, so wording added later is held to it too."""
     for message in load_messages():
         assert not any(character.isdigit() for character in message.sentence)
+
+
+def test_a_sentence_of_whitespace_is_not_a_sentence() -> None:
+    """A length of one is met by a space, which arrives as silence.
+
+    Which is the outcome this whole file was added to stop, reintroduced by
+    the check meant to prevent it.
+    """
+    with pytest.raises(ValueError, match="at least 1"):
+        OutcomeMessage.model_validate({**WORDING, "sentence": "   "})
+
+
+def test_a_promise_written_the_way_people_write_it_is_still_a_promise() -> None:
+    """Lowercasing is not folding.
+
+    The list is spelled without accents, and "bientot" does not occur inside
+    "bientôt", so ordinary French went through untouched.
+    """
+    with pytest.raises(ValueError, match="promises"):
+        OutcomeMessage.model_validate(
+            {**WORDING, "locale": "fr", "sentence": "Nous répondrons bientôt."}
+        )
+
+
+def test_a_language_missing_from_the_image_stops_the_process(tmp_path: Path) -> None:
+    """Not the first customer who writes in that language.
+
+    A file left out of a build is not a mistake a test suite is present to
+    catch, and the promise that every key exists in every language lived only
+    in one.
+    """
+    for shipped in DEFAULT_MESSAGE_DIR.glob("*.toml"):
+        if not shipped.name.endswith(".fr.v1.toml"):
+            (tmp_path / shipped.name).write_text(shipped.read_text())
+    with pytest.raises(OutcomeMessageError, match="nothing approved says"):
+        load_messages(tmp_path)
+
+
+def test_the_shipped_set_is_complete() -> None:
+    book = load_messages()
+    assert len(book) == len(MessageKey) * 2

@@ -334,3 +334,24 @@ def test_a_stopped_request_cannot_be_described_without_telling_them(
         whole = spoken(outcome).model_dump(mode="json")
         with pytest.raises(ValidationError, match=blanked):
             REPLIES.validate_python({**whole, blanked: ""})
+
+
+@pytest.mark.parametrize("blank", ["   ", "\t", "\n"], ids=["spaces", "tab", "newline"])
+def test_whitespace_is_not_something_to_send_anybody(blank: str) -> None:
+    """A minimum length of one is satisfied by a space.
+
+    Which reaches a customer as an empty bubble, and an auditor as a citation
+    pointing nowhere.
+    """
+    asked = spoken(Clarify(ClarificationReason.MISSING_ORDER_ID)).model_dump(
+        mode="json"
+    )
+    for field in ("message", "wording"):
+        with pytest.raises(ValidationError, match=field):
+            REPLIES.validate_python({**asked, field: blank})
+
+    answer = spoken(answered()).model_dump(mode="json")
+    with pytest.raises(ValidationError, match="reply"):
+        REPLIES.validate_python({**answer, "reply": blank})
+    with pytest.raises(ValidationError, match="wording"):
+        REPLIES.validate_python({**answer, "wording": [blank]})

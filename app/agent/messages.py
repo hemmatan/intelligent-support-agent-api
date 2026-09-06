@@ -24,8 +24,16 @@ import tomllib
 from collections.abc import Iterator, Sequence
 from enum import StrEnum
 from pathlib import Path
+from typing import Annotated, get_args
 
-from pydantic import BaseModel, ConfigDict, Field, PositiveInt, ValidationError
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PositiveInt,
+    StringConstraints,
+    ValidationError,
+)
 
 from app.agent.knowledge import Locale
 from app.agent.reasons import (
@@ -34,6 +42,7 @@ from app.agent.reasons import (
     ReasonCode,
 )
 from app.agent.reliability import Route
+from app.agent.text import fold
 
 DEFAULT_MESSAGE_DIR = Path(__file__).parent / "outcome_messages"
 
@@ -124,15 +133,20 @@ class OutcomeMessage(BaseModel):
     locale: Locale
     version: PositiveInt
     approved: bool
-    sentence: str = Field(min_length=1)
+    # Trimmed before it is measured. A length of one is satisfied by a space,
+    # which renders as the silence this whole file exists to prevent.
+    sentence: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
     def model_post_init(self, _: object) -> None:
         if re.search(r"\d", self.sentence):
             raise ValueError("sentence states a figure; nothing here has evidence")
         if _PLACEHOLDER.search(self.sentence):
             raise ValueError("sentence has a slot; these are filled from nothing")
-        folded = self.sentence.casefold()
-        promised = [word for word in _PROMISES if word in folded]
+        # Folded, not merely lowercased: the list is written without accents
+        # and "bientot" does not appear in "bientôt", so an ordinary French
+        # promise went straight through.
+        folded = fold(self.sentence)
+        promised = [word for word in _PROMISES if fold(word) in folded]
         if promised:
             raise ValueError(f"sentence promises {promised}, which nobody has checked")
 
@@ -211,4 +225,17 @@ def load_messages(directory: Path = DEFAULT_MESSAGE_DIR) -> MessageBook:
         messages.append(message)
     if not messages:
         raise OutcomeMessageError(f"no outcome messages found in {directory}")
-    return MessageBook(messages)
+    book = MessageBook(messages)
+    missing = [
+        f"{key} in {locale}"
+        for key in MessageKey
+        for locale in get_args(Locale)
+        if (key, locale) not in book._approved
+    ]
+    if missing:
+        # Checked here rather than only in a test, because a file left out of
+        # an image is not a mistake the test suite is present to notice. The
+        # process refuses to start instead of answering until it meets the
+        # customer whose language went missing.
+        raise OutcomeMessageError(f"nothing approved says {missing}")
+    return book

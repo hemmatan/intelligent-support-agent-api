@@ -46,6 +46,9 @@ Identifier = Annotated[
     str,
     StringConstraints(strip_whitespace=True, pattern=r"^[\w.\-]{1,64}$"),
 ]
+# Anything a person or an auditor reads. Trimmed before it is measured, since
+# a length of one is satisfied by a space and reaches a customer as silence.
+Said = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
 
 # Nothing outside a model is accepted anywhere here. A misspelled field was
@@ -87,8 +90,8 @@ class Citation(BaseModel):
     model_config = _EXACT
 
     source: Source
-    reference: str = Field(min_length=1)
-    content_hash: str = Field(min_length=1)
+    reference: Said
+    content_hash: Said
 
 
 class Reliability(BaseModel):
@@ -121,9 +124,9 @@ class Answer(BaseModel):
 
     route: Literal[Route.DIRECT_RESPONSE] = Route.DIRECT_RESPONSE
     intent: Intent
-    reply: str = Field(min_length=1)
+    reply: Said
     citations: list[Citation] = Field(min_length=1)
-    wording: list[str] = Field(
+    wording: list[Said] = Field(
         min_length=1,
         description="Approved sentences used, each with the digest it had",
     )
@@ -144,8 +147,8 @@ class Clarification(BaseModel):
 
     route: Literal[Route.CLARIFICATION] = Route.CLARIFICATION
     reason: ClarificationReason
-    message: str = Field(min_length=1)
-    wording: str = Field(min_length=1)
+    message: Said
+    wording: Said
 
 
 class Escalation(BaseModel):
@@ -161,8 +164,8 @@ class Escalation(BaseModel):
 
     route: Literal[Route.HUMAN_ESCALATION] = Route.HUMAN_ESCALATION
     reasons: list[EscalationReason | EvidenceReason] = Field(min_length=1)
-    message: str = Field(min_length=1)
-    wording: str = Field(min_length=1)
+    message: Said
+    wording: Said
     reliability: Reliability | None = None
 
 
@@ -173,8 +176,8 @@ class InternalReview(BaseModel):
 
     route: Literal[Route.INTERNAL_REVIEW] = Route.INTERNAL_REVIEW
     reasons: list[ReviewReason | EvidenceReason] = Field(min_length=1)
-    message: str = Field(min_length=1)
-    wording: str = Field(min_length=1)
+    message: Said
+    wording: Said
     reliability: Reliability | None = None
 
 
