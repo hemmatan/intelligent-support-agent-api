@@ -201,7 +201,7 @@ async def plan_for(
     if missing:
         return Review(reason=ReviewReason.SOURCE_UNAVAILABLE)
 
-    hits = await sources.search(proceed.message, proceed.locale)
+    hits = await sources.search(proceed.enquiry.message, proceed.enquiry.locale)
     if not hits:
         return Handover(reasons=frozenset({BlockedReason.NO_SUPPORTING_EVIDENCE}))
 
@@ -213,7 +213,7 @@ async def plan_for(
             content_hash=best.entry.content_hash,
         ),
     )
-    requested = facts_in(proceed.message)
+    requested = facts_in(proceed.enquiry.message)
     measured = {
         Factor.RELEVANCE: relevance_of(hits),
         Factor.COVERAGE: coverage_of(requested, best.entry.facts),
@@ -232,7 +232,7 @@ async def plan_for(
         )
 
     try:
-        reply = templates.say(requested, best.entry, proceed.locale)
+        reply = templates.say(requested, best.entry, proceed.enquiry.locale)
     except NothingApprovedToSayError:
         # The evidence was good enough. Nobody has written the sentence.
         return Review(reason=ReviewReason.NOTHING_APPROVED_TO_SAY)

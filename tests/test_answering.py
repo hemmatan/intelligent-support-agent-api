@@ -14,6 +14,7 @@ from app.agent.answering import (
     _rate,
     plan_for,
 )
+from app.agent.enquiry import Enquiry
 from app.agent.facts import Fact
 from app.agent.intent import Intent
 from app.agent.knowledge import load_corpus
@@ -52,8 +53,7 @@ async def test_coverage_is_the_only_thing_standing_between_this_and_a_customer(
     outcome = await plan_for(
         Proceed(
             intent=Intent.SHIPPING_POLICY,
-            message="Quel est le delai de livraison ?",
-            locale="fr",
+            enquiry=Enquiry(message="Quel est le delai de livraison ?", locale="fr"),
         ),
         sources=sources,
         templates=templates,
@@ -82,7 +82,10 @@ async def test_a_question_the_corpus_answers_is_answered(
     sources: Sources, templates: TemplateLibrary
 ) -> None:
     outcome = await plan_for(
-        Proceed(intent=Intent.SHIPPING_POLICY, message="How long does delivery take?"),
+        Proceed(
+            intent=Intent.SHIPPING_POLICY,
+            enquiry=Enquiry(message="How long does delivery take?"),
+        ),
         sources=sources,
         templates=templates,
     )
@@ -104,7 +107,10 @@ async def test_a_source_nobody_wired_up_waits_for_somebody_here(
     the knowledge base is full of documents that mention orders.
     """
     outcome = await plan_for(
-        Proceed(intent=Intent.ORDER_STATUS, message="Where is my order?"),
+        Proceed(
+            intent=Intent.ORDER_STATUS,
+            enquiry=Enquiry(message="Where is my order?"),
+        ),
         sources=sources,
         templates=templates,
     )
@@ -117,7 +123,10 @@ async def test_nothing_found_is_a_gate_and_not_a_low_score(
 ) -> None:
     """Scoring it would let strong ratings elsewhere carry an empty answer."""
     outcome = await plan_for(
-        Proceed(intent=Intent.RETURN_POLICY, message="Do you ship to Belgium?"),
+        Proceed(
+            intent=Intent.RETURN_POLICY,
+            enquiry=Enquiry(message="Do you ship to Belgium?"),
+        ),
         sources=sources,
         templates=templates,
     )
@@ -139,7 +148,7 @@ async def test_a_source_the_answer_never_leaned_on_does_not_hold_it_back(
     outcome = await plan_for(
         Proceed(
             intent=Intent.RETURN_POLICY,
-            message="How long do I have to return a jacket?",
+            enquiry=Enquiry(message="How long do I have to return a jacket?"),
         ),
         sources=sources,
         templates=templates,
@@ -158,7 +167,7 @@ async def test_a_citation_can_outlive_the_text_it_points_at(
     outcome = await plan_for(
         Proceed(
             intent=Intent.RETURN_POLICY,
-            message="How long do I have to return a jacket?",
+            enquiry=Enquiry(message="How long do I have to return a jacket?"),
         ),
         sources=sources,
         templates=templates,
@@ -198,6 +207,8 @@ def test_a_reading_cannot_exist_apart_from_what_was_read() -> None:
     """
     with pytest.raises(TypeError):
         Proceed(intent=Intent.RETURN_POLICY)  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        Enquiry()  # type: ignore[call-arg]
 
     positional = [
         name
@@ -219,8 +230,7 @@ async def test_a_scored_outcome_says_which_rating_decided_it(
     outcome = await plan_for(
         Proceed(
             intent=Intent.SHIPPING_POLICY,
-            message="Quel est le delai de livraison ?",
-            locale="fr",
+            enquiry=Enquiry(message="Quel est le delai de livraison ?", locale="fr"),
         ),
         sources=sources,
         templates=templates,
@@ -237,7 +247,7 @@ async def test_an_answer_that_went_out_blames_nothing(
     outcome = await plan_for(
         Proceed(
             intent=Intent.RETURN_POLICY,
-            message="How long do I have to return a jacket?",
+            enquiry=Enquiry(message="How long do I have to return a jacket?"),
         ),
         sources=sources,
         templates=templates,
@@ -277,7 +287,7 @@ async def test_an_answer_is_assembled_from_approved_wording(
     outcome = await plan_for(
         Proceed(
             intent=Intent.RETURN_POLICY,
-            message="How long do I have to return a jacket?",
+            enquiry=Enquiry(message="How long do I have to return a jacket?"),
         ),
         sources=sources,
         templates=templates,
@@ -299,8 +309,7 @@ async def test_nothing_bound_for_a_queue_carries_wording_for_a_customer(
     outcome = await plan_for(
         Proceed(
             intent=Intent.SHIPPING_POLICY,
-            message="Quel est le delai de livraison ?",
-            locale="fr",
+            enquiry=Enquiry(message="Quel est le delai de livraison ?", locale="fr"),
         ),
         sources=sources,
         templates=templates,
@@ -344,7 +353,7 @@ async def test_good_evidence_nobody_wrote_a_sentence_for_waits(
     outcome = await plan_for(
         Proceed(
             intent=Intent.RETURN_POLICY,
-            message="How long do I have to return a jacket?",
+            enquiry=Enquiry(message="How long do I have to return a jacket?"),
         ),
         sources=sources,
         templates=TemplateLibrary([]),

@@ -16,14 +16,14 @@ runs.
 
 from dataclasses import dataclass
 
+from app.agent.enquiry import Enquiry
 from app.agent.intent import (
     ClassifierUnavailableError,
     Intent,
     IntentClassifier,
     intents_in,
 )
-from app.agent.knowledge import Locale
-from app.agent.profiles import DecisionProfile, Input, Source, profile_for
+from app.agent.profiles import DecisionProfile, Source, profile_for
 from app.agent.reasons import ClarificationReason, EscalationReason, ReviewReason
 from app.agent.reliability import Route
 from app.agent.risk import risks_in
@@ -71,15 +71,15 @@ class Clarify:
 class Proceed:
     """Enough is known to go and look, and this is where looking is allowed.
 
-    The message travels with the reading of it. Handing the two along
-    separately let a request be gathered for one question and labelled with
-    another: every rating correct, and about different things. It is the same
-    hazard as carrying a profile beside an intent, one step further out.
+    The question travels with the reading of it, and so does everything known
+    about the person who asked. Handing those along separately let a request
+    be gathered for one question and labelled with another: every rating
+    correct, and about different things. It is the same hazard as carrying a
+    profile beside an intent, one step further out.
     """
 
     intent: Intent
-    message: str
-    locale: Locale = "en"
+    enquiry: Enquiry
 
     @property
     def profile(self) -> DecisionProfile:
@@ -99,19 +99,13 @@ class Proceed:
 Triage = Escalate | Clarify | Proceed | Review
 
 
-async def triage(
-    message: str,
-    *,
-    known: frozenset[Input] = frozenset(),
-    locale: Locale = "en",
-    classifier: IntentClassifier,
-) -> Triage:
+async def triage(enquiry: Enquiry, *, classifier: IntentClassifier) -> Triage:
     """Work out what to do with a message, before doing any of it.
 
-    `known` is what the caller already has — an order number in the message,
-    a customer linked to a commerce account. A profile asking for something
-    absent from it stops the request here rather than at a source that would
-    have been asked for nothing.
+    The enquiry carries what the caller already has — an order number, a
+    customer linked to a commerce account — as the values themselves. A
+    profile asking for something absent stops the request here rather than at
+    a source that would have been asked for nothing.
 
     A classifier sees every message the risk rules let through, including the
     ones the phrase rules understood. Understanding what somebody wants is not
@@ -130,15 +124,15 @@ async def triage(
     risk. The cost is a call on every message that is not obviously trouble,
     which is the price of the rules being a fixed vocabulary and people not.
     """
-    risks = risks_in(message)
+    risks = risks_in(enquiry.message)
     if risks:
         return Escalate(reasons=risks)
 
-    matched = intents_in(message)
+    matched = intents_in(enquiry.message)
     intent = next(iter(matched)) if len(matched) == 1 else None
 
     try:
-        reading = await classifier.classify(message, locale)
+        reading = await classifier.classify(enquiry.message, enquiry.locale)
     except ClassifierUnavailableError:
         # Less is known about this message than the service answers on, and
         # nothing about that is the customer's doing.
@@ -157,7 +151,7 @@ async def triage(
         return Clarify(reason=ClarificationReason.UNRESOLVED_INTENT)
 
     profile = profile_for(intent)
-    missing = profile.required_inputs - known
+    missing = profile.required_inputs - enquiry.known
     if missing:
         # Escalations first. Where a customer is not linked to any commerce
         # record, asking them for an order number invites them to answer a
@@ -174,4 +168,4 @@ async def triage(
             return Escalate(reasons=frozenset({reason}))
         return Clarify(reason=reason)
 
-    return Proceed(intent=intent, message=message, locale=locale)
+    return Proceed(intent=intent, enquiry=enquiry)
