@@ -1,0 +1,6 @@
+key = "account_not_linked"
+locale = "fr"
+version = 1
+approved = true
+
+sentence = "Votre compte boutique n'est pas encore relie a ce profil. Un membre de notre equipe s'en charge."

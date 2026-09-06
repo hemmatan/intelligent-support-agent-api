@@ -1,0 +1,6 @@
+key = "ask_for_order_number"
+locale = "fr"
+version = 1
+approved = true
+
+sentence = "Merci de nous communiquer votre numero de commande afin que nous puissions la retrouver."

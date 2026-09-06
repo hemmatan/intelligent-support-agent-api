@@ -8,6 +8,7 @@ from app.agent.answering import Handover, Plan
 from app.agent.answering import Review as PlanReview
 from app.agent.enquiry import MAX_MESSAGE
 from app.agent.intent import Intent
+from app.agent.messages import load_messages
 from app.agent.profiles import Source
 from app.agent.reasons import (
     BlockedReason,
@@ -33,6 +34,12 @@ from app.schemas.support import (
 )
 
 REPLIES: TypeAdapter[SupportReply] = TypeAdapter(SupportReply)
+BOOK = load_messages()
+
+
+def spoken(outcome: object, locale: str = "en") -> SupportReply:
+    return replied(outcome, messages=BOOK, locale=locale)  # type: ignore[arg-type]
+
 
 READY = Assessment(required={Factor.COVERAGE: ReliabilityLevel.READY})
 SUNK = Assessment(required={Factor.COVERAGE: ReliabilityLevel.UNUSABLE})
@@ -57,7 +64,7 @@ def answered() -> Plan:
 
 
 def test_a_question_answered_carries_what_it_rested_on() -> None:
-    reply = replied(answered())
+    reply = spoken(answered())
     assert isinstance(reply, Answer)
     assert reply.route is Route.DIRECT_RESPONSE
     assert reply.reply == "Returns are accepted."
@@ -101,7 +108,7 @@ def test_a_question_answered_carries_what_it_rested_on() -> None:
 def test_every_way_a_request_can_stop_has_a_shape(
     outcome: object, expected: type, route: Route
 ) -> None:
-    reply = replied(outcome)  # type: ignore[arg-type]
+    reply = spoken(outcome)  # type: ignore[arg-type]
     assert isinstance(reply, expected)
     assert reply.route is route
 
@@ -117,7 +124,7 @@ def stopped(assessment: Assessment) -> Plan:
 
 def test_a_rating_that_sank_an_answer_says_what_it_was() -> None:
     """A queue entry arrives with the rating that put it there."""
-    reply = replied(stopped(SUNK))
+    reply = spoken(stopped(SUNK))
     assert isinstance(reply, Escalation)
     assert reply.route is Route.HUMAN_ESCALATION
     assert reply.reasons == [EvidenceReason.NOT_COVERED]
@@ -126,7 +133,7 @@ def test_a_rating_that_sank_an_answer_says_what_it_was() -> None:
 
 
 def test_a_rating_that_held_an_answer_back_says_what_it_was() -> None:
-    reply = replied(stopped(HELD))
+    reply = spoken(stopped(HELD))
     assert isinstance(reply, InternalReview)
     assert reply.route is Route.INTERNAL_REVIEW
     assert reply.reasons == [EvidenceReason.NOT_COVERED]
@@ -137,7 +144,7 @@ def test_a_rating_that_held_an_answer_back_says_what_it_was() -> None:
 def test_a_reply_is_told_apart_by_its_route_alone() -> None:
     """A client reads one field and knows which of four shapes it holds."""
     for outcome in (answered(), Clarify(ClarificationReason.MULTIPLE_INTENTS)):
-        as_sent = replied(outcome).model_dump(mode="json")
+        as_sent = spoken(outcome).model_dump(mode="json")
         assert REPLIES.validate_python(as_sent).route == as_sent["route"]
 
 
@@ -148,7 +155,7 @@ def test_an_answer_cannot_be_described_without_what_it_said() -> None:
     on whichever pydantic noticed first, and proved nothing about the rule
     they were named for.
     """
-    whole = replied(answered()).model_dump(mode="json")
+    whole = spoken(answered()).model_dump(mode="json")
 
     for missing in ("reply", "citations", "wording"):
         with pytest.raises(ValidationError, match=missing):
@@ -156,7 +163,7 @@ def test_an_answer_cannot_be_described_without_what_it_said() -> None:
                 {**whole, missing: [] if missing != "reply" else ""}
             )
 
-    stopped = replied(Escalate(frozenset({RiskReason.PAYMENT_DISPUTE}))).model_dump(
+    stopped = spoken(Escalate(frozenset({RiskReason.PAYMENT_DISPUTE}))).model_dump(
         mode="json"
     )
     with pytest.raises(ValidationError, match="reasons"):
@@ -169,7 +176,7 @@ def test_an_answer_cannot_be_described_without_what_it_said() -> None:
 
 def test_a_published_rating_has_to_be_a_rating() -> None:
     """The scale is a promise, and an unconstrained field is not one."""
-    sound = replied(answered()).model_dump(mode="json")["reliability"]
+    sound = spoken(answered()).model_dump(mode="json")["reliability"]
     for broken in (
         {**sound, "level": "banana"},
         {**sound, "scale": -2},
@@ -184,7 +191,7 @@ def test_a_published_rating_has_to_be_a_rating() -> None:
 
 def test_the_two_ways_a_rating_states_itself_have_to_agree() -> None:
     """A caller reading the name and one reading the number must not differ."""
-    sound = replied(answered()).model_dump(mode="json")["reliability"]
+    sound = spoken(answered()).model_dump(mode="json")["reliability"]
     with pytest.raises(ValidationError, match="on this scale"):
         Reliability.model_validate({**sound, "ordinal": 0})
 
@@ -249,3 +256,81 @@ def test_a_generated_client_is_told_how_to_choose_between_the_shapes() -> None:
     schema = REPLIES.json_schema()
     assert schema["discriminator"]["propertyName"] == "route"
     assert set(schema["discriminator"]["mapping"]) == {route.value for route in Route}
+
+
+@pytest.mark.parametrize("locale", ["en", "fr"], ids=["english", "french"])
+def test_nothing_reaches_a_customer_as_a_bare_code(locale: str) -> None:
+    """A code is not something to show anybody.
+
+    Being asked, being handed on and being held back are three of the four
+    outcomes, and all three used to arrive as a reason and nothing else, which
+    left the customer with silence.
+    """
+    stopping = [
+        Escalate(frozenset({RiskReason.PAYMENT_DISPUTE})),
+        Clarify(ClarificationReason.MISSING_ORDER_ID),
+        TriageReview(ReviewReason.INTENT_CHECK_UNAVAILABLE),
+        Handover(frozenset({BlockedReason.NO_SUPPORTING_EVIDENCE})),
+        stopped(SUNK),
+        stopped(HELD),
+    ]
+    for outcome in stopping:
+        reply = spoken(outcome, locale)
+        assert isinstance(reply, Clarification | Escalation | InternalReview)
+        assert reply.message.strip(), outcome
+        assert reply.wording.startswith("say:"), outcome
+        assert "@sha256:" in reply.wording, outcome
+        # The code the client branches on is still there beside it.
+        assert getattr(reply, "reason", None) or getattr(reply, "reasons", None)
+
+
+def test_a_customer_is_told_one_thing_however_much_went_wrong() -> None:
+    """Two apologies stitched together read as a form letter."""
+    both = Escalate(frozenset({RiskReason.PAYMENT_DISPUTE, RiskReason.LEGAL_THREAT}))
+    reply = spoken(both)
+    assert isinstance(reply, Escalation)
+    assert reply.message
+    assert len(reply.reasons) == 2
+    alone = spoken(Escalate(frozenset({RiskReason.PAYMENT_DISPUTE})))
+    assert isinstance(alone, Escalation)
+    assert reply.message == alone.message
+
+
+def test_the_language_reaches_the_wording() -> None:
+    asked = Clarify(ClarificationReason.MISSING_ORDER_ID)
+    english, french = spoken(asked, "en"), spoken(asked, "fr")
+    assert isinstance(english, Clarification)
+    assert isinstance(french, Clarification)
+    assert english.message != french.message
+    assert french.wording.startswith("say:ask_for_order_number.fr.")
+
+
+def test_an_unlinked_account_is_told_what_is_being_done_about_it() -> None:
+    """Not the generic handover: the design says what this customer hears."""
+    reply = spoken(Escalate(frozenset({BlockedReason.CUSTOMER_NOT_LINKED})))
+    assert isinstance(reply, Escalation)
+    assert reply.message
+    assert reply.wording.startswith("say:account_not_linked.en.")
+    alone = spoken(Escalate(frozenset({RiskReason.PAYMENT_DISPUTE})))
+    assert isinstance(alone, Escalation)
+    assert reply.message != alone.message
+
+
+@pytest.mark.parametrize("blanked", ["message", "wording"], ids=["message", "wording"])
+def test_a_stopped_request_cannot_be_described_without_telling_them(
+    blanked: str,
+) -> None:
+    """The rule, not the current behaviour.
+
+    Asserting only what this service produces leaves the constraint untested:
+    the pipeline never builds an empty one, so removing the requirement
+    changed nothing any test could see.
+    """
+    for outcome in (
+        Clarify(ClarificationReason.MISSING_ORDER_ID),
+        Escalate(frozenset({RiskReason.PAYMENT_DISPUTE})),
+        TriageReview(ReviewReason.SOURCE_UNAVAILABLE),
+    ):
+        whole = spoken(outcome).model_dump(mode="json")
+        with pytest.raises(ValidationError, match=blanked):
+            REPLIES.validate_python({**whole, blanked: ""})

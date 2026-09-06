@@ -1,0 +1,6 @@
+key = "ask_for_order_number"
+locale = "en"
+version = 1
+approved = true
+
+sentence = "Please send us your order number and we will look it up."

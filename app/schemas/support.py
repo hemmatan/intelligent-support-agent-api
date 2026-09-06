@@ -19,6 +19,8 @@ from app.agent.answering import Handover, Outcome, Plan
 from app.agent.answering import Review as PlanReview
 from app.agent.enquiry import MAX_MESSAGE
 from app.agent.intent import Intent
+from app.agent.knowledge import Locale
+from app.agent.messages import MessageBook
 from app.agent.profiles import Source
 from app.agent.reasons import (
     ClarificationReason,
@@ -129,21 +131,38 @@ class Answer(BaseModel):
 
 
 class Clarification(BaseModel):
-    """Something is missing that the customer can supply."""
+    """Something is missing that the customer can supply, and they are asked.
+
+    The code and the sentence are both here and are not alternatives. One is
+    stable and machine-readable, so a client can open the right field and
+    analytics can count how often it happens; the other is written for a
+    person and gets translated. A client reading the sentence to work out what
+    happened has read the wrong field.
+    """
 
     model_config = _EXACT
 
     route: Literal[Route.CLARIFICATION] = Route.CLARIFICATION
     reason: ClarificationReason
+    message: str = Field(min_length=1)
+    wording: str = Field(min_length=1)
 
 
 class Escalation(BaseModel):
-    """A person takes this one. No wording is included, because none was made."""
+    """A person takes this one, and the customer is told so.
+
+    Several things can be wrong at once and every code is kept, because the
+    queue entry is what gets acted on. One sentence goes back, chosen by a
+    declared order, so the same set always reads the same way and nobody
+    receives two apologies stitched together.
+    """
 
     model_config = _EXACT
 
     route: Literal[Route.HUMAN_ESCALATION] = Route.HUMAN_ESCALATION
     reasons: list[EscalationReason | EvidenceReason] = Field(min_length=1)
+    message: str = Field(min_length=1)
+    wording: str = Field(min_length=1)
     reliability: Reliability | None = None
 
 
@@ -154,6 +173,8 @@ class InternalReview(BaseModel):
 
     route: Literal[Route.INTERNAL_REVIEW] = Route.INTERNAL_REVIEW
     reasons: list[ReviewReason | EvidenceReason] = Field(min_length=1)
+    message: str = Field(min_length=1)
+    wording: str = Field(min_length=1)
     reliability: Reliability | None = None
 
 
@@ -181,33 +202,65 @@ def _reliability(plan: Plan) -> Reliability:
     )
 
 
-def replied(outcome: Outcome | Escalate | Clarify | TriageReview) -> SupportReply:
+def replied(
+    outcome: Outcome | Escalate | Clarify | TriageReview,
+    *,
+    messages: MessageBook,
+    locale: Locale,
+) -> SupportReply:
     """Turn a decision into the one shape that can express it.
 
-    Every branch is reachable: a request stops at triage, at a gate, or at a
-    rating, and the last of those can land on any of three routes depending on
-    what the evidence turned out to be worth.
+    The language is the caller's to supply, because a decision taken at triage
+    does not carry one — the enquiry that did has already been left behind by
+    then, and only the customer's account knows what to answer in.
     """
     match outcome:
         case Escalate():
-            return Escalation(reasons=sorted(outcome.reasons, key=str))
+            return _escalated(sorted(outcome.reasons, key=str), messages, locale)
         case Clarify():
-            return Clarification(reason=outcome.reason)
+            said = messages.tell([outcome.reason], locale)
+            return Clarification(
+                reason=outcome.reason, message=said.sentence, wording=said.cited
+            )
         case TriageReview() | PlanReview():
-            return InternalReview(reasons=[outcome.reason])
+            said = messages.tell([outcome.reason], locale)
+            return InternalReview(
+                reasons=[outcome.reason], message=said.sentence, wording=said.cited
+            )
         case Handover():
-            return Escalation(reasons=sorted(outcome.reasons, key=str))
+            return _escalated(sorted(outcome.reasons, key=str), messages, locale)
         case Plan():
-            return _from_plan(outcome)
+            return _from_plan(outcome, messages, locale)
     raise TypeError(f"{outcome!r} is not an outcome")
 
 
-def _from_plan(plan: Plan) -> SupportReply:
+def _escalated(
+    reasons: list[EscalationReason | EvidenceReason],
+    messages: MessageBook,
+    locale: Locale,
+    reliability: Reliability | None = None,
+) -> Escalation:
+    said = messages.tell(reasons, locale)
+    return Escalation(
+        reasons=reasons,
+        message=said.sentence,
+        wording=said.cited,
+        reliability=reliability,
+    )
+
+
+def _from_plan(plan: Plan, messages: MessageBook, locale: Locale) -> SupportReply:
     reasons = sorted(plan.reasons, key=str)
     if plan.route is Route.HUMAN_ESCALATION:
-        return Escalation(reasons=list(reasons), reliability=_reliability(plan))
+        return _escalated(list(reasons), messages, locale, _reliability(plan))
     if plan.route is Route.INTERNAL_REVIEW:
-        return InternalReview(reasons=list(reasons), reliability=_reliability(plan))
+        said = messages.tell(list(reasons), locale)
+        return InternalReview(
+            reasons=list(reasons),
+            message=said.sentence,
+            wording=said.cited,
+            reliability=_reliability(plan),
+        )
     assert plan.reply is not None  # the type refuses a direct answer without one
     return Answer(
         intent=plan.intent,

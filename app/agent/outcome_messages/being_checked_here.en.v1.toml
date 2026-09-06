@@ -1,0 +1,6 @@
+key = "being_checked_here"
+locale = "en"
+version = 1
+approved = true
+
+sentence = "We are checking your request before replying."

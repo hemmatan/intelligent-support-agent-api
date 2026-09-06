@@ -1,0 +1,6 @@
+key = "ask_which_first"
+locale = "fr"
+version = 1
+approved = true
+
+sentence = "Votre message porte sur plusieurs sujets. Merci de nous indiquer lequel traiter en premier."

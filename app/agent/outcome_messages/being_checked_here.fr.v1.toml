@@ -1,0 +1,6 @@
+key = "being_checked_here"
+locale = "fr"
+version = 1
+approved = true
+
+sentence = "Nous verifions votre demande avant de repondre."

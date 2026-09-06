@@ -1,0 +1,6 @@
+key = "ask_what_is_meant"
+locale = "en"
+version = 1
+approved = true
+
+sentence = "We could not tell what you are asking about. Please tell us in a little more detail."

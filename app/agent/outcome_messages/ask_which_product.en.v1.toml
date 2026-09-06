@@ -1,0 +1,6 @@
+key = "ask_which_product"
+locale = "en"
+version = 1
+approved = true
+
+sentence = "Please tell us which item you mean."
