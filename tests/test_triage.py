@@ -4,10 +4,11 @@ from dataclasses import fields
 
 import pytest
 
-from app.agent.intent import Classification, Intent
+from app.agent.intent import Classification, Intent, intents_in
 from app.agent.knowledge import Locale
 from app.agent.profiles import Input, Source, profile_for
 from app.agent.reasons import ClarificationReason, EscalationReason
+from app.agent.risk import risks_in
 from app.agent.triage import (
     Clarify,
     Escalate,
@@ -75,11 +76,19 @@ async def test_a_policy_question_says_where_it_may_be_answered_from() -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_classifier_is_never_asked_about_a_message_the_rules_placed() -> None:
+async def test_a_model_cannot_reinterpret_a_request_the_rules_placed() -> None:
+    """It is asked, because it may have seen trouble. It is not obeyed.
+
+    Understanding the request and noticing the customer is in danger are
+    different jobs, and only the second is still open once the phrases match.
+    """
+    contradicting = Insists(Intent.ORDER_STATUS)
     outcome = await triage(
-        "How long do I have to return a jacket?", classifier=MustNotBeAsked()
+        "How long do I have to return a jacket?", classifier=contradicting
     )
+    assert contradicting.seen == ["How long do I have to return a jacket?"]
     assert isinstance(outcome, Proceed)
+    assert outcome.intent is Intent.RETURN_POLICY
 
 
 @pytest.mark.asyncio
@@ -161,13 +170,17 @@ async def test_chasing_a_refund_is_a_question_about_money_not_about_policy() -> 
 
 
 @pytest.mark.asyncio
-async def test_no_classifier_is_offered_a_refund_to_reconsider() -> None:
-    """The hole this closes: the rules withhold the returns policy from
-    somebody chasing money, and a classifier asked about the leftover handed
-    it straight back. Nothing is left over now, so nothing is asked.
+async def test_a_model_cannot_hand_back_a_policy_the_rules_withheld() -> None:
+    """The rules keep the returns policy from somebody chasing money.
+
+    Asked about the leftover, a classifier used to hand it straight back.
+    There is no leftover now, and its answer is not taken for a placed
+    request, so neither route reopens.
     """
     outcome = await triage(
-        "Where is my refund?", known=LINKED_WITH_ORDER, classifier=MustNotBeAsked()
+        "Where is my refund?",
+        known=LINKED_WITH_ORDER,
+        classifier=Insists(Intent.RETURN_POLICY),
     )
     assert isinstance(outcome, Proceed)
     assert outcome.intent is Intent.REFUND_STATUS
@@ -238,3 +251,31 @@ async def test_a_model_has_no_way_to_say_a_message_is_fine() -> None:
     outcome = await triage("I was charged twice", classifier=quiet)
     assert outcome == Escalate(reasons=frozenset({EscalationReason.PAYMENT_DISPUTE}))
     assert quiet.seen == []
+
+
+@pytest.mark.asyncio
+async def test_trouble_inside_an_ordinary_request_still_reaches_a_person() -> None:
+    """The gap this closes, and the reason a model is consulted at all.
+
+    The phrases recognise the return and have nothing for the rest of it.
+    Treating that recognition as the end of the matter answered somebody whose
+    account had been used by a stranger with a note about return windows.
+    """
+    message = "I need to return this because a stranger made purchases using my account"
+    assert risks_in(message) == frozenset()
+    assert intents_in(message) == {Intent.RETURN_POLICY}
+
+    watchful = Insists(None, frozenset({EscalationReason.ACCOUNT_COMPROMISE}))
+    outcome = await triage(message, classifier=watchful)
+    assert outcome == Escalate(reasons=frozenset({EscalationReason.ACCOUNT_COMPROMISE}))
+
+
+@pytest.mark.asyncio
+async def test_a_message_the_rules_escalated_is_shown_to_nobody() -> None:
+    """Consulting it on everything else does not mean consulting it on this.
+
+    It has no way to lower a risk because it never sees a message carrying
+    one, which is what makes always asking safe rather than merely useful.
+    """
+    outcome = await triage("I was charged twice", classifier=MustNotBeAsked())
+    assert outcome == Escalate(reasons=frozenset({EscalationReason.PAYMENT_DISPUTE}))

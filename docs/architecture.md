@@ -358,6 +358,19 @@ prose to a customer.
 Sensitive-situation detection runs *before* model classification. The
 classifier may add a risk flag; it can never clear one that rules established.
 
+It is consulted on every message the risk rules let through, including the
+ones the phrase rules understood. Recognising a request is not the same as
+noticing the person making it is in trouble: "I need to return this because a
+stranger used my account" is a return, and the clause that matters is the
+other one. Its risk flags are acted on either way; the intent it offers is
+taken only where the rules recognised nothing, so it cannot reinterpret a
+request they placed. It is never shown a message the rules escalated, which
+is what makes "never clears" structural rather than a promise.
+
+The cost is a model call on every message that is not obviously trouble. That
+is the price of the rules being a fixed vocabulary while the people writing in
+are not.
+
 Four situations qualify: payment disputes, suspected fraud, account
 compromise, and legal threats. A message naming one of them escalates unless
 the sentence is asking about policy in general — and a customer describing

@@ -96,28 +96,41 @@ async def triage(
     absent from it stops the request here rather than at a source that would
     have been asked for nothing.
 
-    A classifier is offered only messages the rules made no sense of. It can
-    name an intent they missed and report trouble they did not describe, and
-    it is never consulted about a message they placed or escalated. It cannot
-    disagree with them about risk in the one direction that would matter: a
-    message they flagged has already left by the time it would be asked, and
-    what it returns is only ever added.
+    A classifier sees every message the risk rules let through, including the
+    ones the phrase rules understood. Understanding what somebody wants is not
+    the same as noticing they are in trouble: "I need to return this because a
+    stranger used my account" reads as a return, and the rest of the sentence
+    is the part that matters. Recognising the first half was being taken as
+    reason enough not to look at the second.
+
+    What it is trusted with still depends. Risk it reports is acted on
+    whatever the rules found, because it can only ever add. The intent it
+    offers is taken only where the rules recognised nothing, so a model cannot
+    reinterpret a request they already placed.
+
+    It is never consulted about a message the rules escalated: that one has
+    left before it would be asked, which is why nothing it returns can lower a
+    risk. The cost is a call on every message that is not obviously trouble,
+    which is the price of the rules being a fixed vocabulary and people not.
     """
     risks = risks_in(message)
     if risks:
         return Escalate(reasons=risks)
 
     matched = intents_in(message)
-    if len(matched) > 1:
-        return Clarify(reason=ClarificationReason.MULTIPLE_INTENTS)
+    intent = next(iter(matched)) if len(matched) == 1 else None
 
-    intent = next(iter(matched), None)
-    if intent is None and classifier is not None:
+    if classifier is not None:
         reading = await classifier.classify(message, locale)
-        # Trouble it saw and the rules did not outranks anything it named.
+        # Trouble it saw and the rules did not outranks anything it named,
+        # and outranks anything they named too.
         if reading.risks:
             return Escalate(reasons=reading.risks)
-        intent = reading.intent
+        if not matched:
+            intent = reading.intent
+
+    if len(matched) > 1:
+        return Clarify(reason=ClarificationReason.MULTIPLE_INTENTS)
     if intent is None:
         return Clarify(reason=ClarificationReason.UNRESOLVED_INTENT)
 
