@@ -14,6 +14,7 @@ from dataclasses import dataclass
 
 from app.agent.answering import Outcome, Sources, plan_for
 from app.agent.enquiry import Enquiry
+from app.agent.intent import IntentClassifier
 from app.agent.messages import MessageBook
 from app.agent.responses import TemplateLibrary
 from app.agent.triage import Clarify, Escalate, Proceed, triage
@@ -28,6 +29,10 @@ class SupportAgent:
     sources: Sources
     templates: TemplateLibrary
     messages: MessageBook
+    # Nothing implements this. It is held here so the one place that would
+    # pass one to triage already does, and so the path a failing model takes
+    # can be exercised without a model existing.
+    classifier: IntentClassifier | None = None
 
     async def answer(self, enquiry: Enquiry) -> SupportReply:
         """Decide what to do with a question, then do only that.
@@ -36,7 +41,7 @@ class SupportAgent:
         it, so what a customer is told and what they asked cannot end up in
         different languages.
         """
-        decided = await triage(enquiry)
+        decided = await triage(enquiry, classifier=self.classifier)
         reached: Outcome | Escalate | Clarify | TriageReview = (
             await plan_for(decided, sources=self.sources, templates=self.templates)
             if isinstance(decided, Proceed)

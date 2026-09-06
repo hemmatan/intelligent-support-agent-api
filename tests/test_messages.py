@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
+from app.agent.knowledge import Locale
 from app.agent.messages import (
     _FIRST,
-    _SAYS,
     MessageBook,
     MessageKey,
     NothingToTellThemError,
@@ -22,6 +22,7 @@ from app.agent.reasons import (
     ReviewReason,
     RiskReason,
 )
+from app.agent.reliability import Route
 
 WORDING = {
     "key": "being_checked_here",
@@ -32,27 +33,41 @@ WORDING = {
 }
 
 
-def test_every_code_a_customer_can_meet_has_something_to_say() -> None:
-    """A code with no wording is a customer receiving silence.
+# Which codes each route can actually carry, so the table below covers what
+# the service produces rather than every combination the types allow.
+CARRIED: dict[Route, list[ReasonCode]] = {
+    Route.CLARIFICATION: list(ClarificationReason),
+    Route.HUMAN_ESCALATION: [*RiskReason, *BlockedReason, *EvidenceReason],
+    Route.INTERNAL_REVIEW: [*ReviewReason, *EvidenceReason],
+}
 
-    Adding a reason is when this gets forgotten, and the place it shows up is
-    a reply with nothing in it.
+
+@pytest.mark.parametrize("locale", ["en", "fr"], ids=["english", "french"])
+def test_everything_a_customer_can_meet_has_something_to_say(locale: Locale) -> None:
+    """A code with no wording is somebody receiving silence.
+
+    Adding a reason is when this gets forgotten, and where it shows up is a
+    reply with nothing in it.
     """
-    reachable = {
-        *ClarificationReason,
-        *RiskReason,
-        *BlockedReason,
-        *ReviewReason,
-        *EvidenceReason,
-    }
-    assert reachable - set(_SAYS) == set()
-
-
-def test_everything_there_is_to_say_is_written_in_both_languages() -> None:
     book = load_messages()
-    for key in MessageKey:
-        for locale in ("en", "fr"):
-            assert book.tell([next(r for r, k in _SAYS.items() if k is key)], locale)  # type: ignore[arg-type]
+    for route, reasons in CARRIED.items():
+        for reason in reasons:
+            assert book.tell([reason], locale, route).sentence, (route, reason)
+
+
+def test_what_a_customer_is_told_follows_where_the_request_went() -> None:
+    """One code, two routes, and only one of the sentences is true.
+
+    Coverage falling short holds a request here or sends it onward depending
+    on how far short. Chosen by the code alone, somebody whose message never
+    left was told a colleague had taken it on.
+    """
+    book = load_messages()
+    held = book.tell([EvidenceReason.NOT_COVERED], "en", Route.INTERNAL_REVIEW)
+    passed = book.tell([EvidenceReason.NOT_COVERED], "en", Route.HUMAN_ESCALATION)
+    assert held.key is MessageKey.BEING_CHECKED_HERE
+    assert passed.key is MessageKey.HANDED_TO_A_SPECIALIST
+    assert held.sentence != passed.sentence
 
 
 def test_several_things_wrong_come_to_one_sentence() -> None:
@@ -62,24 +77,31 @@ def test_several_things_wrong_come_to_one_sentence() -> None:
     and would have varied between runs, since these hash by their text.
     """
     book = load_messages()
-    speaks_for = {
-        key: next(r for r, k in _SAYS.items() if k is key) for key in MessageKey
+    speaks_for: dict[MessageKey, ReasonCode] = {
+        MessageKey.ASK_FOR_ORDER_NUMBER: ClarificationReason.MISSING_ORDER_ID,
+        MessageKey.ASK_WHICH_PRODUCT: ClarificationReason.MISSING_PRODUCT_REFERENCE,
+        MessageKey.ASK_WHICH_FIRST: ClarificationReason.MULTIPLE_INTENTS,
+        MessageKey.ASK_WHAT_IS_MEANT: ClarificationReason.UNRESOLVED_INTENT,
+        MessageKey.ACCOUNT_NOT_LINKED: BlockedReason.CUSTOMER_NOT_LINKED,
+        MessageKey.HANDED_TO_A_SPECIALIST: RiskReason.PAYMENT_DISPUTE,
     }
-    for first in MessageKey:
-        for second in MessageKey:
+    for first in speaks_for:
+        for second in speaks_for:
             if first is second:
                 continue
             pair: list[ReasonCode] = [speaks_for[first], speaks_for[second]]
             expected = min({first, second}, key=_FIRST.index)
-            assert book.tell(pair, "en").key is expected, pair
-            assert book.tell(list(reversed(pair)), "en").key is expected, pair
+            route = Route.HUMAN_ESCALATION
+            assert book.tell(pair, "en", route).key is expected, pair
+            assert book.tell(list(reversed(pair)), "en", route).key is expected, pair
 
 
 def test_what_went_wrong_inside_is_not_what_the_customer_hears() -> None:
     """Which rating fell short is a fact about us, and useless to them."""
     book = load_messages()
     for reason in EvidenceReason:
-        assert book.tell([reason], "en").key is MessageKey.HANDED_TO_A_SPECIALIST
+        told = book.tell([reason], "en", Route.HUMAN_ESCALATION)
+        assert told.key is MessageKey.HANDED_TO_A_SPECIALIST
 
 
 def test_a_sentence_here_states_no_figure() -> None:
@@ -140,9 +162,9 @@ def test_a_draft_is_not_wording() -> None:
 def test_a_reason_nobody_wrote_for_is_refused_rather_than_answered_blankly() -> None:
     thin = MessageBook([OutcomeMessage.model_validate(WORDING)])
     with pytest.raises(NothingToTellThemError):
-        thin.tell([ClarificationReason.MISSING_ORDER_ID], "en")
+        thin.tell([ClarificationReason.MISSING_ORDER_ID], "en", Route.CLARIFICATION)
     with pytest.raises(NothingToTellThemError):
-        thin.tell([], "en")
+        thin.tell([], "en", Route.CLARIFICATION)
 
 
 def test_a_file_has_to_say_what_it_is(tmp_path: Path) -> None:

@@ -218,12 +218,12 @@ def replied(
         case Escalate():
             return _escalated(sorted(outcome.reasons, key=str), messages, locale)
         case Clarify():
-            said = messages.tell([outcome.reason], locale)
+            said = messages.tell([outcome.reason], locale, Route.CLARIFICATION)
             return Clarification(
                 reason=outcome.reason, message=said.sentence, wording=said.cited
             )
         case TriageReview() | PlanReview():
-            said = messages.tell([outcome.reason], locale)
+            said = messages.tell([outcome.reason], locale, Route.INTERNAL_REVIEW)
             return InternalReview(
                 reasons=[outcome.reason], message=said.sentence, wording=said.cited
             )
@@ -240,7 +240,7 @@ def _escalated(
     locale: Locale,
     reliability: Reliability | None = None,
 ) -> Escalation:
-    said = messages.tell(reasons, locale)
+    said = messages.tell(reasons, locale, Route.HUMAN_ESCALATION)
     return Escalation(
         reasons=reasons,
         message=said.sentence,
@@ -254,7 +254,7 @@ def _from_plan(plan: Plan, messages: MessageBook, locale: Locale) -> SupportRepl
     if plan.route is Route.HUMAN_ESCALATION:
         return _escalated(list(reasons), messages, locale, _reliability(plan))
     if plan.route is Route.INTERNAL_REVIEW:
-        said = messages.tell(list(reasons), locale)
+        said = messages.tell(list(reasons), locale, Route.INTERNAL_REVIEW)
         return InternalReview(
             reasons=list(reasons),
             message=said.sentence,

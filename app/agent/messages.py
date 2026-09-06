@@ -31,11 +31,9 @@ from app.agent.knowledge import Locale
 from app.agent.reasons import (
     BlockedReason,
     ClarificationReason,
-    EvidenceReason,
     ReasonCode,
-    ReviewReason,
-    RiskReason,
 )
+from app.agent.reliability import Route
 
 DEFAULT_MESSAGE_DIR = Path(__file__).parent / "outcome_messages"
 
@@ -74,30 +72,27 @@ class MessageKey(StrEnum):
     BEING_CHECKED_HERE = "being_checked_here"
 
 
-# Every code that can reach a customer, and what they are told about it.
-# Internal detail collapses: which rating fell short, or which source was
-# unreachable, is a fact about us and reaches the queue entry, not the reply.
+# Where a request went decides most of what its sender hears, because that is
+# what happened to them. A reason refines it, and only where one code calls
+# for genuinely different words from another on the same route.
+_DEFAULT: dict[Route, MessageKey] = {
+    Route.CLARIFICATION: MessageKey.ASK_WHAT_IS_MEANT,
+    Route.HUMAN_ESCALATION: MessageKey.HANDED_TO_A_SPECIALIST,
+    Route.INTERNAL_REVIEW: MessageKey.BEING_CHECKED_HERE,
+}
+
+# Only the codes that change the wording. Which rating fell short, or which
+# adapter could not be reached, is ours to know: it reaches the queue entry
+# and gives a customer nothing to act on, so it takes the route's own words.
 _SAYS: dict[ReasonCode, MessageKey] = {
     ClarificationReason.MISSING_ORDER_ID: MessageKey.ASK_FOR_ORDER_NUMBER,
     ClarificationReason.MISSING_PRODUCT_REFERENCE: MessageKey.ASK_WHICH_PRODUCT,
-    ClarificationReason.UNRESOLVED_INTENT: MessageKey.ASK_WHAT_IS_MEANT,
     ClarificationReason.MULTIPLE_INTENTS: MessageKey.ASK_WHICH_FIRST,
-    RiskReason.PAYMENT_DISPUTE: MessageKey.HANDED_TO_A_SPECIALIST,
-    RiskReason.SUSPECTED_FRAUD: MessageKey.HANDED_TO_A_SPECIALIST,
-    RiskReason.ACCOUNT_COMPROMISE: MessageKey.HANDED_TO_A_SPECIALIST,
-    RiskReason.LEGAL_THREAT: MessageKey.HANDED_TO_A_SPECIALIST,
+    ClarificationReason.UNRESOLVED_INTENT: MessageKey.ASK_WHAT_IS_MEANT,
     BlockedReason.CUSTOMER_NOT_LINKED: MessageKey.ACCOUNT_NOT_LINKED,
-    BlockedReason.NO_SUPPORTING_EVIDENCE: MessageKey.HANDED_TO_A_SPECIALIST,
-    EvidenceReason.UNAUTHORITATIVE: MessageKey.HANDED_TO_A_SPECIALIST,
-    EvidenceReason.NOT_COVERED: MessageKey.HANDED_TO_A_SPECIALIST,
-    EvidenceReason.POORLY_MATCHED: MessageKey.HANDED_TO_A_SPECIALIST,
-    EvidenceReason.STALE: MessageKey.HANDED_TO_A_SPECIALIST,
-    ReviewReason.SOURCE_UNAVAILABLE: MessageKey.BEING_CHECKED_HERE,
-    ReviewReason.NOTHING_APPROVED_TO_SAY: MessageKey.BEING_CHECKED_HERE,
-    ReviewReason.INTENT_CHECK_UNAVAILABLE: MessageKey.BEING_CHECKED_HERE,
 }
 
-# One request can carry several codes, and a customer gets one sentence. The
+# One request can carry several codes and its sender gets one sentence. The
 # order is declared rather than derived, so the same set always produces the
 # same reply and nobody has to read a sort key to predict it. Stitching two
 # sentences together was the alternative, and it reads as a form letter.
@@ -179,11 +174,19 @@ class MessageBook:
     def __iter__(self) -> Iterator[OutcomeMessage]:
         return iter(self._approved.values())
 
-    def tell(self, reasons: Sequence[ReasonCode], locale: Locale) -> OutcomeMessage:
-        """The one sentence these reasons come to, in this language."""
+    def tell(
+        self, reasons: Sequence[ReasonCode], locale: Locale, route: Route
+    ) -> OutcomeMessage:
+        """The sentence these reasons come to on this route, in this language.
+
+        The route is not decoration. A request held back here and one passed
+        to a specialist can arrive carrying the same code — coverage fell
+        short in both — and telling somebody their message went to a colleague
+        when it did not is a false statement about what happened to it.
+        """
         if not reasons:
             raise NothingToTellThemError("nothing happened that anybody can be told")
-        keys = {_SAYS[reason] for reason in reasons if reason in _SAYS}
+        keys = {_SAYS.get(reason, _DEFAULT[route]) for reason in reasons}
         chosen = next((key for key in _FIRST if key in keys), None)
         if chosen is None:
             raise NothingToTellThemError(f"nothing is written for {list(reasons)}")

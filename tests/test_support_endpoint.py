@@ -1,6 +1,8 @@
 """The endpoint a customer talks to, wired to the agent it answers from."""
 
 from collections.abc import AsyncGenerator, Callable
+from dataclasses import replace
+from itertools import count
 
 import pytest
 import pytest_asyncio
@@ -8,7 +10,9 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.answering import Sources
-from app.agent.knowledge import load_corpus
+from app.agent.enquiry import MAX_MESSAGE
+from app.agent.intent import ClassifierUnavailableError, Intent
+from app.agent.knowledge import Locale, load_corpus
 from app.agent.messages import load_messages
 from app.agent.responses import load_templates
 from app.agent.retrieval import PolicyIndex
@@ -42,14 +46,20 @@ async def wired(agent: SupportAgent) -> AsyncGenerator[None, None]:
 async def signed_in(
     session: AsyncSession,
 ) -> Callable[..., AsyncGenerator[dict[str, str], None]]:
-    """A customer, and the header that speaks for them."""
+    """A customer, and the header that speaks for them.
 
-    async def make(locale: str = "en", linked: int | None = 4471) -> dict[str, str]:
+    Each one is distinct: the commerce link is unique in the schema, so a
+    test wanting two customers used to collide on the second.
+    """
+    made = count()
+
+    async def make(locale: str = "en", linked: bool = True) -> dict[str, str]:
+        nth = next(made)
         customer = User(
-            username=f"asker-{locale}-{linked}",
+            username=f"asker-{nth}",
             hashed_password="x",
             preferred_locale=locale,
-            external_customer_id=linked,
+            external_customer_id=4471 + nth if linked else None,
         )
         session.add(customer)
         await session.commit()
@@ -165,3 +175,264 @@ async def test_startup_builds_the_agent_the_endpoint_asks_for(
         assert isinstance(app.state.support, SupportAgent)
         assert len(app.state.support.templates)
         assert len(app.state.support.messages)
+
+
+# One row per decision the service can reach, asserted through HTTP rather
+# than in process. Everything below the route handler is exercised by its own
+# tests; this table is the claim that a customer writing in actually gets
+# these, and it is the table the README quotes.
+GOLDEN: list[tuple[str, str, dict[str, str], str, str]] = [
+    (
+        "en",
+        "a question the policy answers",
+        {"message": "How long do I have to return a jacket?"},
+        "direct_response",
+        "return_window",
+    ),
+    (
+        "fr",
+        "the same question in French",
+        {"message": "Combien de temps pour retourner un article ?"},
+        "direct_response",
+        "return_window",
+    ),
+    (
+        "en",
+        "a question about delivery",
+        {"message": "How long does delivery take?"},
+        "direct_response",
+        "standard_delivery_time",
+    ),
+    (
+        "fr",
+        "delivery in a language nothing covers",
+        {"message": "Quel est le delai de livraison ?"},
+        "human_escalation",
+        "evidence_does_not_cover_the_question",
+    ),
+    (
+        "en",
+        "a carve-out the claims do not state",
+        {"message": "Can I return underwear?"},
+        "internal_review",
+        "evidence_does_not_cover_the_question",
+    ),
+    (
+        "en",
+        "nothing approved says anything about it",
+        {"message": "Do you ship to Belgium?"},
+        "human_escalation",
+        "no_supporting_evidence",
+    ),
+    (
+        "en",
+        "trouble reported in passing",
+        {"message": "I need to return this because a stranger used my card"},
+        "human_escalation",
+        "suspected_fraud",
+    ),
+    (
+        "en",
+        "a source nobody connected",
+        {"message": "Where is my order?", "order_id": "ORD-4471"},
+        "internal_review",
+        "source_unavailable",
+    ),
+    (
+        "en",
+        "something only the customer can supply",
+        {"message": "Where is my order?"},
+        "clarification",
+        "missing_order_id",
+    ),
+    (
+        "en",
+        "two questions in one message",
+        {"message": "Where is my order, and can I return it once it arrives?"},
+        "clarification",
+        "multiple_intents",
+    ),
+    (
+        "en",
+        "nothing anybody can place",
+        {"message": "I need help with my purchase"},
+        "clarification",
+        "unresolved_intent",
+    ),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("locale", "about", "sent", "route", "why"),
+    GOLDEN,
+    ids=[f"{locale}: {about}" for locale, about, _, _, _ in GOLDEN],
+)
+async def test_a_customer_writing_in_gets_the_decision_they_should(
+    async_client: AsyncClient,
+    wired: None,
+    signed_in: Callable[..., object],
+    locale: str,
+    about: str,
+    sent: dict[str, str],
+    route: str,
+    why: str,
+) -> None:
+    headers = await signed_in(locale=locale)  # type: ignore[misc]
+    response = await async_client.post(MESSAGES, json=sent, headers=headers)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["route"] == route, body
+    if route == "direct_response":
+        assert why in body["wording"][0]
+        assert body["reply"]
+        assert body["citations"]
+    else:
+        assert why in body.get("reasons", [body.get("reason")]), body
+        # Nothing leaves here as a bare code, whatever stopped it.
+        assert body["message"], body
+        assert body["wording"].startswith("say:"), body
+
+
+@pytest.mark.asyncio
+async def test_an_identifier_reaches_the_step_that_needed_it(
+    async_client: AsyncClient, wired: None, signed_in: Callable[..., object]
+) -> None:
+    """Supplying it changes the decision, which is the only proof it arrived.
+
+    Recorded as a marker and dropped, the request kept asking for an order
+    number it had already been given.
+    """
+    headers = await signed_in()  # type: ignore[misc]
+    without = await async_client.post(
+        MESSAGES, json={"message": "Where is my order?"}, headers=headers
+    )
+    with_it = await async_client.post(
+        MESSAGES,
+        json={"message": "Where is my order?", "order_id": "ORD-4471"},
+        headers=headers,
+    )
+    assert without.json()["reason"] == "missing_order_id"
+    assert with_it.json()["reasons"] == ["source_unavailable"]
+
+
+@pytest.mark.asyncio
+async def test_an_unlinked_customer_is_told_what_is_being_done(
+    async_client: AsyncClient, wired: None, signed_in: Callable[..., object]
+) -> None:
+    """They cannot supply the link, so asking them would waste their turn."""
+    headers = await signed_in(linked=False)  # type: ignore[misc]
+    response = await async_client.post(
+        MESSAGES,
+        json={"message": "Where is my order?", "order_id": "ORD-4471"},
+        headers=headers,
+    )
+    body = response.json()
+    assert body["route"] == "human_escalation"
+    assert body["reasons"] == ["customer_not_linked"]
+    assert "not yet connected" in body["message"]
+
+
+class Down:
+    """A classifier that cannot answer today."""
+
+    async def classify(self, message: str, locale: Locale) -> Intent | None:
+        raise ClassifierUnavailableError("the provider timed out")
+
+
+class MustNotBeAsked:
+    """Raises if consulted. A spy counting calls passes when never wired up."""
+
+    async def classify(self, message: str, locale: Locale) -> Intent | None:
+        raise AssertionError("a model saw a message the rules had settled")
+
+
+@pytest_asyncio.fixture
+async def wired_with(
+    agent: SupportAgent,
+) -> AsyncGenerator[Callable[[object], None], None]:
+    def use(classifier: object) -> None:
+        app.dependency_overrides[support_agent] = lambda: replace(
+            agent,
+            classifier=classifier,  # type: ignore[arg-type]
+        )
+
+    yield use
+    app.dependency_overrides.pop(support_agent, None)
+
+
+@pytest.mark.asyncio
+async def test_a_model_that_cannot_answer_holds_the_request_here(
+    async_client: AsyncClient,
+    wired_with: Callable[[object], None],
+    signed_in: Callable[..., object],
+) -> None:
+    """Not a five hundred. The fault is ours and the customer is told so."""
+    wired_with(Down())
+    headers = await signed_in()  # type: ignore[misc]
+    response = await async_client.post(
+        MESSAGES, json={"message": "I need help with my purchase"}, headers=headers
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["route"] == "internal_review"
+    assert body["reasons"] == ["intent_check_unavailable"]
+    assert body["message"]
+
+
+@pytest.mark.asyncio
+async def test_reported_trouble_never_waits_on_a_model(
+    async_client: AsyncClient,
+    wired_with: Callable[[object], None],
+    signed_in: Callable[..., object],
+) -> None:
+    """The rules read the message first and leave, so nothing else runs.
+
+    The model here raises when spoken to. It is not spoken to, which is why a
+    provider having a bad afternoon cannot hold up a fraud report.
+    """
+    wired_with(MustNotBeAsked())
+    headers = await signed_in()  # type: ignore[misc]
+    response = await async_client.post(
+        MESSAGES, json={"message": "I was charged twice"}, headers=headers
+    )
+    assert response.status_code == 200
+    assert response.json()["reasons"] == ["payment_dispute"]
+
+
+@pytest.mark.asyncio
+async def test_a_message_past_the_ceiling_is_refused_at_the_edge(
+    async_client: AsyncClient, wired: None, signed_in: Callable[..., object]
+) -> None:
+    """Before ranking tokenises it or anything is asked to read it."""
+    headers = await signed_in()  # type: ignore[misc]
+    response = await async_client.post(
+        MESSAGES, json={"message": "a" * (MAX_MESSAGE + 1)}, headers=headers
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_a_request_held_here_does_not_claim_to_have_gone_elsewhere(
+    async_client: AsyncClient, wired: None, signed_in: Callable[..., object]
+) -> None:
+    """The same shortfall reaches two routes, and only one sentence is true.
+
+    Chosen by the code alone, a customer whose message never left the service
+    was told a colleague had taken it on personally.
+    """
+    headers = await signed_in()  # type: ignore[misc]
+    held = await async_client.post(
+        MESSAGES, json={"message": "Can I return underwear?"}, headers=headers
+    )
+    passed = await async_client.post(
+        MESSAGES,
+        json={"message": "Quel est le delai de livraison ?"},
+        headers=await signed_in(locale="fr"),  # type: ignore[misc]
+    )
+    assert held.json()["route"] == "internal_review"
+    assert passed.json()["route"] == "human_escalation"
+    assert held.json()["reasons"] == passed.json()["reasons"]
+    assert "checking your request" in held.json()["message"]
+    assert "transmis" in passed.json()["message"]
