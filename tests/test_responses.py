@@ -121,7 +121,7 @@ def test_a_draft_is_not_wording(tmp_path: Path) -> None:
 
 def test_the_shipped_wording_all_loads() -> None:
     library = load_templates()
-    assert len(library) == 14
+    assert len(library) == 16
     for template in library:
         assert template.approved
 

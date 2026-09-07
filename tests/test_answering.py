@@ -761,3 +761,118 @@ def _an_order(reference: str) -> OrderRecord:
         reference=reference,
         state=OrderState.DISPATCHED,
     )
+
+
+def _asking_stock(reference: str | None = "12", locale: str = "en") -> Proceed:
+    return Proceed(
+        intent=Intent.PRODUCT_AVAILABILITY,
+        enquiry=Enquiry(
+            message="Is it still available?"
+            if locale == "en"
+            else "Est-ce encore disponible ?",
+            locale=locale,  # type: ignore[arg-type]
+            customer=1,
+            product=reference,
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_stock_question_is_answered_from_the_shop_in_both_languages(
+    shop: Sources, templates: TemplateLibrary
+) -> None:
+    """The first non-policy journey that reaches a customer.
+
+    Looked up against the shop's own records, ownership not being a question
+    a catalogue asks, rated on what the row states and how lately it was
+    read, and said in wording somebody approved — with the row it rested on
+    cited beside it.
+    """
+    for locale, expected in (
+        ("en", "That item is available to order on our website right now."),
+        ("fr", "Cet article est disponible à la commande sur notre site actuellement."),
+    ):
+        outcome = await plan_for(
+            _asking_stock(locale=locale), sources=shop, templates=templates
+        )
+        assert isinstance(outcome, Plan)
+        assert outcome.route is Route.DIRECT_RESPONSE
+        assert outcome.reply is not None
+        assert outcome.reply.text == expected
+        (cited,) = outcome.citations
+        assert cited.reference == "demo:product:12"
+        assert cited.synthetic is True
+
+
+@pytest.mark.asyncio
+async def test_an_item_nobody_has_says_so_rather_than_going_quiet(
+    shop: Sources, templates: TemplateLibrary
+) -> None:
+    """Out of stock is an answer, not an absence of one."""
+    outcome = await plan_for(_asking_stock("13"), sources=shop, templates=templates)
+    assert isinstance(outcome, Plan)
+    assert outcome.route is Route.DIRECT_RESPONSE
+    assert outcome.reply is not None
+    assert "out of stock" in outcome.reply.text
+
+
+@pytest.mark.asyncio
+async def test_a_reading_taken_hours_ago_is_not_sent_unsupervised(
+    templates: TemplateLibrary,
+) -> None:
+    """Approved wording exists and the evidence is too old to use it.
+
+    Which is the point of rating age separately: nothing about the sentence
+    or the record changed, and the request still waits for a colleague.
+    """
+    stale = Sources(
+        knowledge_base=PolicyIndex(load_corpus()),
+        commerce=DemoStorefront(now=lambda: SHOP_NOW),
+        now=lambda: SHOP_NOW + timedelta(hours=2),
+    )
+    outcome = await plan_for(_asking_stock(), sources=stale, templates=templates)
+    assert isinstance(outcome, Plan)
+    assert outcome.assessment.required[Factor.FRESHNESS] is ReliabilityLevel.REVIEW_ONLY
+    assert outcome.route is Route.INTERNAL_REVIEW
+    assert outcome.reply is None
+
+
+@pytest.mark.asyncio
+async def test_a_catalogue_nobody_can_reach_still_does_not_guess(
+    templates: TemplateLibrary,
+) -> None:
+    """Wording existing changes nothing when there is no row to put in it."""
+
+    class Quiet:
+        async def product(self, reference: str) -> object:
+            raise CommerceUnavailableError("read timed out")
+
+    outcome = await plan_for(
+        _asking_stock(),
+        sources=Sources(
+            knowledge_base=PolicyIndex(load_corpus()),
+            commerce=Quiet(),  # type: ignore[arg-type]
+        ),
+        templates=templates,
+    )
+    assert outcome == Review(
+        reason=ReviewReason.SOURCE_UNAVAILABLE, intent=Intent.PRODUCT_AVAILABILITY
+    )
+
+
+@pytest.mark.asyncio
+async def test_order_and_refund_questions_still_wait_for_wording(
+    shop: Sources, templates: TemplateLibrary
+) -> None:
+    """Only one intent was finished, and the others say so rather than guess.
+
+    Their states are things the records settle; what is missing is a sentence
+    somebody has approved for saying them. That is a gap a person closes, and
+    until they do the request goes to one.
+    """
+    outcome = await plan_for(
+        asking("Where is my order?"), sources=shop, templates=templates
+    )
+    assert isinstance(outcome, Plan)
+    assert outcome.held_back is ReviewReason.NOTHING_APPROVED_TO_SAY
+    assert outcome.route is Route.INTERNAL_REVIEW

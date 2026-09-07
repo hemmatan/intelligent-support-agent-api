@@ -412,7 +412,9 @@ _NOT_FOUND: dict[Intent, ClarificationReason] = {
 }
 
 
-async def _from_commerce(proceed: Proceed, *, sources: Sources) -> Outcome:
+async def _from_commerce(
+    proceed: Proceed, *, sources: Sources, templates: TemplateLibrary
+) -> Outcome:
     """Answering out of the shop's own records: look one up, cite it, rate it.
 
     Nothing is ranked, so there is no relevance to measure and the profiles
@@ -471,20 +473,35 @@ async def _from_commerce(proceed: Proceed, *, sources: Sources) -> Outcome:
         Factor.FRESHNESS: sources.freshness(record),
     }
     assessment = _rate(profile, measured)
+    if assessment.route is not Route.DIRECT_RESPONSE:
+        return Plan(
+            intent=proceed.intent,
+            requested=requested,
+            assessment=assessment,
+            citations=citations,
+        )
+
+    try:
+        reply = templates.say(requested, record.values(), proceed.enquiry.locale)
+    except NothingApprovedToSayError:
+        # Evidence good enough to send, and nobody has written the sentence.
+        # Order and refund states are here today: what they can be told is
+        # settled, and how to tell them is not. The row travels with the
+        # request either way, so whoever picks it up has what it rested on.
+        return Plan(
+            intent=proceed.intent,
+            requested=requested,
+            assessment=assessment,
+            citations=citations,
+            held_back=ReviewReason.NOTHING_APPROVED_TO_SAY,
+        )
+
     return Plan(
         intent=proceed.intent,
         requested=requested,
         assessment=assessment,
         citations=citations,
-        # Evidence good enough to send, and no approved sentence to send it
-        # in: the phrase book covers written policy and stops there. The row
-        # travels with the request either way, so whoever picks it up has
-        # what the decision was taken on.
-        held_back=(
-            ReviewReason.NOTHING_APPROVED_TO_SAY
-            if assessment.route is Route.DIRECT_RESPONSE
-            else None
-        ),
+        reply=reply,
     )
 
 
@@ -510,5 +527,5 @@ async def plan_for(
         return Review(reason=ReviewReason.SOURCE_UNAVAILABLE, intent=proceed.intent)
 
     if Source.COMMERCE in profile.required_sources:
-        return await _from_commerce(proceed, sources=sources)
+        return await _from_commerce(proceed, sources=sources, templates=templates)
     return await _from_knowledge_base(proceed, sources=sources, templates=templates)

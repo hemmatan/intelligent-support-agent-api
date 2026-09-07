@@ -468,8 +468,8 @@ expected_intents = ["product_availability"]
 expected_risks = []
 expected_sources = ["commerce", "history"]
 expected_claims = ["stock_availability"]
-expected_route = "internal_review"
-expected_reasons = ["nothing_approved_to_say"]
+expected_route = "direct_response"
+expected_reasons = []
 
 [[scenario]]
 id = "refund_found"
