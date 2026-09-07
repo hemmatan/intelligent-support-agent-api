@@ -3,8 +3,8 @@ locale = "fr"
 version = 1
 approved = true
 
-sentence = "Cet article {in_stock} sur notre site actuellement."
+sentence = "Cet article {in_stock}."
 
 [words]
-in_stock_true = "est disponible à la commande"
+in_stock_true = "est en stock"
 in_stock_false = "est en rupture de stock"

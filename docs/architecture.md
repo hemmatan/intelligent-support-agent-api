@@ -649,9 +649,12 @@ availability answers a customer**, in both languages, from the row it cites.
 Order and refund status stop at internal review, and the reason is the phrase
 book rather than the evidence: both states are settled facts the records
 carry, and nobody has approved a sentence for saying them. Availability was
-finished first because it asks the least — whether something can be ordered
-is a yes or a no, so two sentences per language cover it, where each of the
-other two needs five. That is a gap a person closes by writing, and until
+finished first because it asks the least — whether something is in stock is
+a yes or a no, so two sentences per language cover it, where each of the
+other two states needs five. Those five are only the state: a tracking
+reference, a delivery date and a refunded amount need the renderer taught to
+speak opaque strings, locale-formatted dates and money, which it refuses
+today and which is more than wording. That is a gap a person closes by writing, and until
 they do the request goes to one.
 
 The knowledge base is a small bilingual corpus, not a full parallel

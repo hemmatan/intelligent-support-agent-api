@@ -29,7 +29,7 @@ The agent's design and the reasoning behind it are in
 - **Docker Workflows**: Containerized development and production topologies
 - **Developer-friendly**: Auto-reload, debugging, and development tools
 - **Validated Configuration**: Namespaced settings with production secret and CORS safeguards
-- **Two Kinds of Evidence**: Written policy is ranked and matched; the shop's own records are looked up with ownership inside the query, rated on age as well as coverage, and cited with the note that the demonstration rows are invented
+- **Two Kinds of Evidence**: Written policy is ranked and matched; the shop's own records are looked up with ownership inside the query for anything belonging to a customer, rated on age as well as coverage, and cited with the note that the demonstration rows are invented
 - **Grounded Answers**: Every customer-facing sentence is approved, versioned and content-hashed; figures come from structured claims, never from prose
 - **Four Honest Outcomes**: Answer, clarify, escalate or hold for review, with a machine-readable reason for every non-answer, an approved sentence for whoever reads it, and a recorded case
 

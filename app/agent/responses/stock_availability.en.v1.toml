@@ -3,8 +3,8 @@ locale = "en"
 version = 1
 approved = true
 
-sentence = "That item {in_stock} on our website right now."
+sentence = "That item {in_stock}."
 
 [words]
-in_stock_true = "is available to order"
+in_stock_true = "is in stock"
 in_stock_false = "is out of stock"

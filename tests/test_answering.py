@@ -783,14 +783,16 @@ async def test_a_stock_question_is_answered_from_the_shop_in_both_languages(
 ) -> None:
     """The first non-policy journey that reaches a customer.
 
-    Looked up against the shop's own records, ownership not being a question
-    a catalogue asks, rated on what the row states and how lately it was
-    read, and said in wording somebody approved — with the row it rested on
-    cited beside it.
+    The sentence says what the row holds and stops. An earlier draft read
+    "available to order on our website", which asserts that ordering is
+    enabled and that the item is listed — neither of which a stock flag
+    establishes. Connective phrasing widening a claim is the failure approved
+    wording exists to prevent, and it is invisible to every structural check
+    around it.
     """
     for locale, expected in (
-        ("en", "That item is available to order on our website right now."),
-        ("fr", "Cet article est disponible à la commande sur notre site actuellement."),
+        ("en", "That item is in stock."),
+        ("fr", "Cet article est en stock."),
     ):
         outcome = await plan_for(
             _asking_stock(locale=locale), sources=shop, templates=templates
