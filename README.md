@@ -369,9 +369,10 @@ The build context is filtered by `.dockerignore`: local environment files,
 virtual environments, repository history, databases and generated caches are
 never sent to the builder. Runtime assets remain available to the image.
 
-`requirements.txt` is the locked production dependency set used by the image.
-`requirements-dev.txt` adds the test, lint and type-check tools used during
-development; those tools are not installed in the runtime image.
+The builder installs production dependencies directly from `uv.lock` with
+`uv sync --frozen --no-dev`. It does not maintain a second exported lock file
+that could drift from the environment tested in CI, and development tools are
+not installed in the runtime image.
 
 The image uses a multi-stage `python:3.11-slim` build. Dependencies are
 installed outside the runtime stage, which receives only the virtual

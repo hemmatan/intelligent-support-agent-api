@@ -40,16 +40,6 @@ alembic revision --autogenerate
 alembic upgrade head
 ```
 
-# Regenerate requirements.txt from the lock file
-
-`uv pip compile` re-resolves and drifts from `uv.lock`. Export instead, so the
-pinned versions match exactly:
-
-```sh
-uv export --frozen --format requirements-txt --extra dev \
-  --no-hashes --no-emit-project --output-file requirements.txt
-```
-
 # run all tests
 
 ```sh
