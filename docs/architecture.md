@@ -55,8 +55,8 @@ flowchart TD
     SEM --> FUSE
 
     FUSE --> EV[Assemble typed evidence]
-    COM -->|authorized result| EV
-    COM -->|ownership mismatch| ESC
+    COM -->|record found| EV
+    COM -->|no record this customer may see| CLR
     HIST --> EV
 
     EV --> AVAIL{Required sources usable?}
@@ -188,8 +188,24 @@ own responses as synthetic.
 
 Ownership is a query parameter, not a check afterwards. The adapter is asked
 for an order belonging to the authenticated customer, so a record they may
-not see is never fetched and then discarded. A mismatch returns a typed
-result, not the record.
+not see is never fetched and then discarded.
+
+**A reference matching nothing and a reference matching somebody else's order
+come back as the same value.** Not as a courtesy to whoever asked, but
+because the question named the customer, so the difference was never
+established and there is nothing to disclose. Two outcomes would be an oracle:
+ask about a reference as somebody who owns nothing, ask again as somebody who
+owns one thing, and the pair reports whether that reference exists. Repeat and
+the shop's order numbers are enumerated a question at a time. The result type
+has no field to hold the distinction in.
+
+This is a change from an earlier version of this document, which routed an
+ownership mismatch to a human. That described a check performed after the
+fact, which is not what the adapter does. The customer is asked to check the
+reference instead — a question they can act on, and one that says nothing
+either way about whose order it might be. An upstream service that refuses a
+record without revealing it could be recorded separately for staff; nothing
+does that today, and no second lookup is made to manufacture the distinction.
 
 A customer can be authenticated without being linked to any commerce record,
 since the linkage is nullable. Commerce-backed questions then escalate. They
