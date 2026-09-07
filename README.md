@@ -5,8 +5,9 @@
 <h1 align="center">DornaShop Support Agent</h1>
 
 <p align="center">
-  An evidence-grounded support API: every answer cites the approved policy it
-  came from, and anything it cannot ground is routed to a person instead.
+  An evidence-grounded support API: every direct answer cites the approved
+  evidence it came from; requests it cannot safely answer are clarified, held
+  for review or escalated.
 </p>
 
 
@@ -227,6 +228,9 @@ kept for a malformed body (`422`) and an unknown caller (`401`).
 Every reply carries a `case`, which is the record the decision was written
 into before the reply was sent.
 
+The examples below show every response field. A `null` or empty value means
+the decision was made before that information was established.
+
 **`direct_response`** — answered from approved wording, with the evidence it
 rests on:
 
@@ -240,7 +244,11 @@ rests on:
     {
       "source": "knowledge_base",
       "reference": "kb:returns.standard.en.v1",
-      "content_hash": "sha256:..."
+      "content_hash": "sha256:...",
+      "provider": null,
+      "observed": null,
+      "observed_at": null,
+      "synthetic": null
     }
   ],
   "wording": ["say:return_window.en.v1@sha256:..."],
@@ -261,7 +269,8 @@ rests on:
   "case": "9c8e2f1a-...",
   "reason": "missing_order_id",
   "message": "Please send us your order number and we will look it up.",
-  "wording": "say:ask_for_order_number.en.v1@sha256:..."
+  "wording": "say:ask_for_order_number.en.v1@sha256:...",
+  "intent": "order_status"
 }
 ```
 
@@ -274,7 +283,9 @@ rests on:
   "reasons": ["payment_dispute"],
   "message": "We have passed this to a member of our team to handle personally.",
   "wording": "say:handed_to_a_specialist.en.v1@sha256:...",
-  "reliability": null
+  "reliability": null,
+  "citations": [],
+  "intent": null
 }
 ```
 
@@ -297,10 +308,11 @@ with their message is true.
 - `POST /api/v1/support/cases/{reference}/claim` - Put your name against one
 - `POST /api/v1/support/cases/{reference}/resolve` - Close it, recording what was done
 
-A case carries what the decision rested on — the message, the order number and
-product reference the customer supplied, the sources the request was permitted
-to read, the route and reasons, the words they received, the evidence cited and
-the rating each dimension earned — so nobody has to write back for something
+A case carries what the decision had available — the message, the order number
+and product reference the customer supplied, the sources the request was
+permitted to read, the route and reasons, and the words they received. It also
+keeps the intent when one was established and, when evidence was assessed, its
+citations and per-factor ratings, so nobody has to write back for something
 already given.
 
 Claiming and resolving are conditional writes, so two people cannot both be
@@ -359,9 +371,11 @@ startup:
 - a readable window shorter than the freshness window, which describes no
   scale a reading could be rated on.
 
-With the invented records switched off, nothing answers order, refund or
-stock questions, and they wait for a colleague. That is the honest state
-until a client for a real shop is written; see `docs/architecture.md`.
+With the invented records switched off, a commerce request that passes triage
+cannot reach its required source and waits for a colleague. Missing references
+still produce a clarification, and an unlinked commerce account still
+escalates. That is the honest state until a client for a real shop is written;
+see `docs/architecture.md`.
 
 ## Roles
 
@@ -383,10 +397,10 @@ uv run pytest
 
 ### Continuous Integration
 
-Every push to `main` and every pull request runs the same gate as
-`pre-commit`, plus two checks a local run cannot cover: the declared
-dependency floors are installed and imported (`--resolution lowest-direct`),
-and the migrations are applied and reversed. See
+Every push to `main` and every pull request runs linting, formatting, type
+checks and tests. CI also installs and imports the declared dependency floors
+(`--resolution lowest-direct`), applies and reverses the migrations, and
+exercises the production image and Compose stack. See
 [.github/workflows/ci.yml](.github/workflows/ci.yml).
 
 ### Code Quality Tools
