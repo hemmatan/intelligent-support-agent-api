@@ -301,17 +301,30 @@ variables, which can be set in a `.env` file. Unprefixed variables such as
 | `DORNASHOP_DB_HOST` | PostgreSQL host | `""` |
 | `DORNASHOP_DB_PORT` | PostgreSQL port, `1`-`65535` | `5432` when omitted |
 | `DORNASHOP_DB_NAME` | Database name, or SQLite file path. Required for PostgreSQL | `db.sqlite3` for SQLite |
+| `DORNASHOP_COMMERCE_DEMO_RECORDS` | Serve invented order, refund and stock rows. **Must be `false` in production** | `true` |
+| `DORNASHOP_COMMERCE_FRESHNESS_TTL_SECONDS` | How long a reading of those records stays worth sending | `900` |
+| `DORNASHOP_COMMERCE_READABLE_FOR_SECONDS` | How long past that it stays worth showing a colleague; may not be shorter than the line above | `21600` |
 
-In production, set `DORNASHOP_ENVIRONMENT=production`, provide a unique secret,
-and list explicit CORS origins. The application refuses to start rather than
-serve traffic with an unsafe configuration. It rejects, at startup:
+In production, set `DORNASHOP_ENVIRONMENT=production`, provide a unique
+secret, list explicit CORS origins, and set
+`DORNASHOP_COMMERCE_DEMO_RECORDS=false`. The application refuses to start
+rather than serve traffic with an unsafe configuration. It rejects, at
+startup:
 
 - the development secret, or any secret under 32 characters, in production;
 - wildcard CORS origins in production;
 - debug mode in production;
 - PostgreSQL selected without a complete set of credentials;
 - non-positive token lifetimes, out-of-range ports, and API prefixes the
-  router would refuse.
+  router would refuse;
+- invented commerce records in production, since a delivery state nobody
+  looked up must not reach somebody who placed a real order;
+- a readable window shorter than the freshness window, which describes no
+  scale a reading could be rated on.
+
+With the invented records switched off, nothing answers order, refund or
+stock questions, and they wait for a colleague. That is the honest state
+until a client for a real shop is written; see `docs/architecture.md`.
 
 ## Roles
 

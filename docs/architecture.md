@@ -89,9 +89,15 @@ enforced inside the commerce query, so another customer's order is never
 fetched and then rejected. And nothing is delivered before the decision is
 persisted.
 
-Declared sources are queried concurrently. Claims are constructed in the
-response plan, which is why the validity gates sit after it — before that
-point there is evidence, but nothing yet asserting anything.
+A request is planned for by the source that owns its claim, and today each
+planner reads one. Concurrency is what several declared sources would call
+for and is not what happens: written policy is ranked, or a row is fetched,
+and no request does both. Said plainly because the alternative is a document
+implying a fan-out nobody would find in the code.
+
+Claims are constructed in the response plan, which is why the validity gates
+sit after it — before that point there is evidence, but nothing yet asserting
+anything.
 
 ## Where answers come from
 
@@ -282,9 +288,17 @@ Some conditions have a known outcome and are never scored:
 | Material claim with no supporting evidence | Escalate |
 | Material contradiction between sources | Escalate |
 | Payment dispute, fraud, account compromise | Escalate |
-| Request touching another customer's data | Reject and escalate |
+| Request naming a record this customer may not see | Clarify — see below |
 | Required customer-supplied information missing | Clarify |
 | Required source unavailable | Internal review |
+
+The row about another customer's data is the one that changed. Escalating
+described a check made after the record came back, and ownership sits inside
+the query instead, so the difference between a reference belonging to
+somebody else and a reference belonging to nobody is never established. One
+outcome covers both and the customer is asked to check what they typed. The
+reasoning is under *Commerce data*; this table said the older thing for
+longer than the paragraph did.
 
 A **material** claim is one about identifiers, ownership, status, amounts,
 dates, availability, policy terms, account security, or an action taken or
