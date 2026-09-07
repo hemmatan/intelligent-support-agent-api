@@ -177,14 +177,25 @@ commerce to find out whether that product is in stock.
 
 ### Commerce data
 
-A typed, asynchronous adapter over DummyJSON, behind a protocol so tests can
-substitute timeout, unavailable and malformed-response implementations.
-Failure behaviour is proven by those tests, not by waiting for a real outage.
+A typed, asynchronous protocol, so tests can substitute timeout, unavailable
+and malformed-response implementations. Failure behaviour is proven by those
+tests rather than by waiting for a real outage.
 
-DummyJSON carts are **carts**, not orders. They carry no status, carrier,
-tracking number or dates, and are never presented as order state. Synthetic
-order records come from a separately labelled demo provider that marks its
-own responses as synthetic.
+**What ships behind it is a local provider of invented rows, and no HTTP
+client.** Every row it returns carries a flag saying it was made up, and that
+flag travels through the citation into the stored case, so a reply resting on
+one can always be told from a reply resting on a real purchase. It is refused
+outright in a production process.
+
+An adapter over DummyJSON was planned and is not written. Two things follow
+from saying so rather than leaving the earlier sentence standing. DummyJSON
+carts are **carts**: no status, no carrier, no tracking number, no dates, so
+they could never have answered where an order is, and the synthetic provider
+would have been needed beside them regardless. And *live* and *invented* are
+different claims — DummyJSON's catalogue is mock data too, so an HTTP client
+would have moved where the rows come from without making any of them real.
+
+What that costs is stated plainly under *Considered and rejected*.
 
 Ownership is a query parameter, not a check afterwards. The adapter is asked
 for an order belonging to the authenticated customer, so a record they may
@@ -489,10 +500,32 @@ support systems are investigated after the fact by definition.
 | One global source priority | "Where is my order" has one authoritative source regardless of word overlap |
 | JSONPlaceholder | Its posts are not support tickets; the mapping would be fiction |
 | Hugging Face's model catalogue as the domain | Model recommendation, not customer support |
-| All data held locally | No typed external boundary, so timeouts, malformed responses and degraded-mode behaviour cannot be exercised |
+| All data held locally | Rejected for the knowledge base, and it is what commerce currently does. See below |
 | Fixtures as a fourth source | They are test doubles; stale cache is a commerce response with a freshness flag |
 | Model-written text to customers | Connective phrasing smuggles in unbacked claims |
 | A model deciding risk or intent | Measured; it could not tell a report from a question about the same subject. See below |
+
+### The external boundary, and where it actually is
+
+Holding everything locally was rejected on the grounds that a typed external
+boundary is the only way to exercise timeouts, malformed responses and
+degraded-mode behaviour. That reasoning stands, and commerce does not
+currently satisfy it: its rows come from a table in this repository.
+
+The boundary exists elsewhere and is real. The embedding adapter calls a
+hosted model over the network, splits failures by whether a retry could
+differ, degrades to lexical search when the answer might come later, and
+halts the process when it never will. Malformed responses are refused field
+by field. That is the behaviour the rejection was written to secure, and it
+is exercised.
+
+So the honest statement is narrower than the original: **this project has one
+external boundary, not two.** Commerce keeps the same protocol, the same
+failure taxonomy and the same substitutable tests, which is what an HTTP
+client would need in order to be dropped in — the seam is built and nothing
+is behind it. That is a smaller claim than the one this document made before,
+and it is the one the code supports.
+
 
 ### The model classification that was built and then removed
 
