@@ -143,6 +143,17 @@ class Record(BaseModel):
         raise NotImplementedError
 
     @property
+    def facts(self) -> frozenset[Fact]:
+        """What this particular row settles, as against what its kind is about.
+
+        Declared here so a caller holding any row can ask. Every kind answers
+        it from the fields it actually came with, which is the difference
+        between a row and a policy: a policy of a kind always makes its
+        claims, while an order answers as far as it has got.
+        """
+        raise NotImplementedError
+
+    @property
     def cited_as(self) -> str:
         """How an audit names this row a year from now.
 

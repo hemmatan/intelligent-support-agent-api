@@ -2,6 +2,7 @@
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.agent.answering import Sources
+from app.agent.demo import DemoStorefront
 from app.agent.embedding import Embedder
 from app.agent.inference import HuggingFaceEmbedder
 from app.agent.knowledge import load_corpus
@@ -53,7 +55,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # sentence naming a claim nothing states, or a reason nothing can say,
     # should stop the process while nobody is waiting on a reply.
     app.state.support = SupportAgent(
-        sources=Sources(knowledge_base=index),
+        sources=Sources(
+            knowledge_base=index,
+            # Every row it returns says it is invented. There is no
+            # DornaShop to ask, and a reply resting on this is marked as
+            # resting on it all the way to the case record.
+            commerce=DemoStorefront(),
+            ttl=timedelta(seconds=settings.COMMERCE_FRESHNESS_TTL_SECONDS),
+            readable_for=timedelta(seconds=settings.COMMERCE_READABLE_FOR_SECONDS),
+        ),
         templates=load_templates(),
         messages=load_messages(),
     )

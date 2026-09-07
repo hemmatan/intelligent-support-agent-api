@@ -1,0 +1,6 @@
+key = "check_the_reference"
+locale = "en"
+version = 1
+approved = true
+
+sentence = "We could not find anything under that reference on your account. Please check it and send it to us again."

@@ -1,6 +1,7 @@
 """Gathering what a placed request may gather, and rating what came back."""
 
 import inspect
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -14,16 +15,23 @@ from app.agent.answering import (
     _rate,
     plan_for,
 )
+from app.agent.commerce import CommerceUnavailableError
+from app.agent.demo import DemoStorefront
 from app.agent.enquiry import Enquiry
 from app.agent.facts import Fact
 from app.agent.intent import Intent
 from app.agent.knowledge import Locale, load_corpus
 from app.agent.profiles import Source, profile_for
-from app.agent.reasons import BlockedReason, EvidenceReason, ReviewReason
+from app.agent.reasons import (
+    BlockedReason,
+    ClarificationReason,
+    EvidenceReason,
+    ReviewReason,
+)
 from app.agent.reliability import Assessment, Factor, ReliabilityLevel, Route
 from app.agent.responses import ApprovedReply, TemplateLibrary, load_templates
 from app.agent.retrieval import Hit, PolicyIndex
-from app.agent.triage import Proceed, UnexplainedEscalationError
+from app.agent.triage import Clarify, Proceed, UnexplainedEscalationError
 
 
 @pytest.fixture
@@ -416,3 +424,148 @@ def test_an_answer_sent_citing_nothing_is_refused() -> None:
                 said=("say:return_window.en.v1@sha256:abc",),
             ),
         )
+
+
+@pytest.fixture
+def shop() -> Sources:
+    """The corpus and a storefront of invented rows, on a clock we control."""
+    return Sources(
+        knowledge_base=PolicyIndex(load_corpus()),
+        commerce=DemoStorefront(now=lambda: SHOP_NOW),
+        now=lambda: SHOP_NOW,
+    )
+
+
+SHOP_NOW = datetime(2026, 9, 7, 12, 0, tzinfo=UTC)
+
+
+def asking(message: str, **known: object) -> Proceed:
+    return Proceed(
+        intent=Intent.ORDER_STATUS,
+        enquiry=Enquiry(message=message, customer=1, order="4471", **known),  # type: ignore[arg-type]
+    )
+
+
+@pytest.mark.asyncio
+async def test_an_order_question_now_reaches_the_shop_instead_of_a_person(
+    shop: Sources, templates: TemplateLibrary
+) -> None:
+    """Every rating satisfied, and no approved sentence to put it in.
+
+    Which is the truthful outcome rather than a shortfall: the phrase book
+    covers written policy and nothing else so far, so a colleague finishes
+    this from the record. Before the gateway existed the same question
+    stopped at the availability gate without anything having been looked up.
+    """
+    outcome = await plan_for(
+        asking("Where is my order?"), sources=shop, templates=templates
+    )
+    assert outcome == Review(reason=ReviewReason.NOTHING_APPROVED_TO_SAY)
+
+
+@pytest.mark.asyncio
+async def test_a_reference_nobody_can_show_this_customer_sends_them_back_to_check(
+    shop: Sources, templates: TemplateLibrary
+) -> None:
+    """Somebody else's order and no such order arrive identically.
+
+    Not an escalation: nothing has gone wrong here, and a colleague can do
+    nothing about it that the person who typed the reference cannot do
+    faster.
+    """
+    stranger = Proceed(
+        intent=Intent.ORDER_STATUS,
+        enquiry=Enquiry(message="Where is my order?", customer=2, order="4471"),
+    )
+    missing = Proceed(
+        intent=Intent.ORDER_STATUS,
+        enquiry=Enquiry(message="Where is my order?", customer=1, order="9999"),
+    )
+    expected = Clarify(reason=ClarificationReason.ORDER_NOT_FOUND)
+    assert await plan_for(stranger, sources=shop, templates=templates) == expected
+    assert await plan_for(missing, sources=shop, templates=templates) == expected
+
+
+@pytest.mark.asyncio
+async def test_a_shop_having_a_bad_afternoon_is_ours_to_answer_for(
+    templates: TemplateLibrary,
+) -> None:
+    """The customer asked a fair question; our own records did not reply.
+
+    A specialist is the wrong destination for that, and so is a five hundred.
+    """
+
+    class Unreachable:
+        async def order(self, reference: str, *, customer: int) -> object:
+            raise CommerceUnavailableError("read timed out")
+
+    unwell = Sources(
+        knowledge_base=PolicyIndex(load_corpus()),
+        commerce=Unreachable(),  # type: ignore[arg-type]
+    )
+    outcome = await plan_for(
+        asking("Where is my order?"), sources=unwell, templates=templates
+    )
+    assert outcome == Review(reason=ReviewReason.SOURCE_UNAVAILABLE)
+
+
+@pytest.mark.asyncio
+async def test_an_order_still_in_the_building_cannot_say_when_it_lands(
+    shop: Sources, templates: TemplateLibrary
+) -> None:
+    """Asked for a date by a row that has none, which is not a weak answer.
+
+    Nothing it holds bears on the question, so there is no partial reply to
+    hand a colleague and it goes to somebody who can find out.
+    """
+    placed = Proceed(
+        intent=Intent.ORDER_STATUS,
+        enquiry=Enquiry(message="When will my order arrive?", customer=1, order="4472"),
+    )
+    outcome = await plan_for(placed, sources=shop, templates=templates)
+    assert isinstance(outcome, Plan)
+    assert outcome.assessment.required[Factor.COVERAGE] is ReliabilityLevel.UNUSABLE
+    assert outcome.route is Route.HUMAN_ESCALATION
+
+
+@pytest.mark.asyncio
+async def test_evidence_read_this_morning_is_rated_on_its_age(
+    templates: TemplateLibrary,
+) -> None:
+    """The factor every commerce profile requires and nothing used to supply.
+
+    A reading taken hours ago is still legible and no longer something to
+    send unsupervised, so it waits for one of us.
+    """
+    hours_later = Sources(
+        knowledge_base=PolicyIndex(load_corpus()),
+        commerce=DemoStorefront(now=lambda: SHOP_NOW),
+        now=lambda: SHOP_NOW + timedelta(hours=2),
+    )
+    outcome = await plan_for(
+        asking("Where is my order?"), sources=hours_later, templates=templates
+    )
+    assert isinstance(outcome, Plan)
+    assert outcome.assessment.required[Factor.FRESHNESS] is ReliabilityLevel.REVIEW_ONLY
+    assert outcome.route is Route.INTERNAL_REVIEW
+
+
+@pytest.mark.asyncio
+async def test_a_reply_records_which_row_it_rested_on(
+    shop: Sources, templates: TemplateLibrary
+) -> None:
+    """Named by supplier, and carrying the note that none of it is real."""
+    stale = Sources(
+        knowledge_base=PolicyIndex(load_corpus()),
+        commerce=DemoStorefront(now=lambda: SHOP_NOW),
+        now=lambda: SHOP_NOW + timedelta(hours=2),
+    )
+    outcome = await plan_for(
+        asking("Where is my order?"), sources=stale, templates=templates
+    )
+    assert isinstance(outcome, Plan)
+    (cited,) = outcome.citations
+    assert cited.source is Source.COMMERCE
+    assert cited.reference == "demo:order:4471"
+    assert cited.synthetic is True
+    assert cited.observed_at == SHOP_NOW

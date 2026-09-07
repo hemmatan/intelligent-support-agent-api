@@ -10,14 +10,25 @@ scored, because scoring them invites a strong rating elsewhere to average them
 away. Only once the gates pass does anything become a number on a scale.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 
+from app.agent.commerce import (
+    CommerceGateway,
+    CommerceUnavailableError,
+    Found,
+    Record,
+    freshness_of,
+)
+from app.agent.enquiry import Enquiry
 from app.agent.facts import Fact, coverage_of, facts_in
 from app.agent.intent import Intent
 from app.agent.knowledge import Locale
 from app.agent.profiles import DecisionProfile, Source
 from app.agent.reasons import (
     BlockedReason,
+    ClarificationReason,
     EscalationReason,
     EvidenceReason,
     ReviewReason,
@@ -29,7 +40,7 @@ from app.agent.responses import (
     TemplateLibrary,
 )
 from app.agent.retrieval import Hit, PolicyIndex, relevance_of
-from app.agent.triage import Proceed, Review, UnexplainedEscalationError
+from app.agent.triage import Clarify, Proceed, Review, UnexplainedEscalationError
 
 
 @dataclass(frozen=True)
@@ -45,6 +56,15 @@ class Citation:
     source: Source
     reference: str
     content_hash: str
+
+    # Empty for written policy, which is approved rather than observed: it has
+    # no supplier, no moment of reading, and asking whether it is invented is
+    # asking the wrong question of it. A row from the shop answers all three,
+    # and the answers have to survive as far as the case record, or the note
+    # saying none of this describes a real purchase stops here.
+    provider: str | None = None
+    observed_at: datetime | None = None
+    synthetic: bool | None = None
 
 
 # Which rating, having decided an outcome, gets recorded as the cause of it.
@@ -129,32 +149,99 @@ class Plan:
         )
 
 
-Outcome = Plan | Review | Handover
+Outcome = Plan | Review | Handover | Clarify
+
+
+class RequestNotPlacedError(RuntimeError):
+    """A lookup was reached without what triage promises it will have.
+
+    Triage refuses to place a request whose profile names an input the enquiry
+    does not carry, so arriving here without one means the two have come
+    apart. Raised rather than worked around, because the alternative is
+    querying the shop's records for an order belonging to nobody.
+    """
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
 
 
 class Sources:
     """The adapters that are wired up, as against the ones profiles name.
 
-    Commerce and conversation history have none yet. A profile requiring one
-    stops at the availability gate rather than proceeding without it, which is
-    the truthful outcome: an order cannot be located from a policy document,
-    and the alternative is answering from whatever else was reachable.
+    Conversation history has none. A profile requiring a source nobody
+    connected stops at the availability gate rather than proceeding without
+    it, which is the truthful outcome: an order cannot be located from a
+    policy document, and the alternative is answering out of whatever else
+    happened to be reachable.
+
+    The clock and the two windows live here because they are operational
+    settings rather than facts about a request, and because a test that wants
+    to know what a customer is told about week-old evidence should not have to
+    wait a week.
     """
 
-    def __init__(self, *, knowledge_base: PolicyIndex | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        knowledge_base: PolicyIndex | None = None,
+        commerce: CommerceGateway | None = None,
+        now: Callable[[], datetime] = _utc_now,
+        ttl: timedelta = timedelta(minutes=15),
+        readable_for: timedelta = timedelta(hours=6),
+    ) -> None:
         self._knowledge_base = knowledge_base
+        self._commerce = commerce
+        self._now = now
+        self._ttl = ttl
+        self._readable_for = readable_for
 
     @property
     def available(self) -> frozenset[Source]:
         """Which sources can actually be asked right now."""
-        if self._knowledge_base is None:
-            return frozenset()
-        return frozenset({Source.KNOWLEDGE_BASE})
+        connected = set()
+        if self._knowledge_base is not None:
+            connected.add(Source.KNOWLEDGE_BASE)
+        if self._commerce is not None:
+            connected.add(Source.COMMERCE)
+        return frozenset(connected)
 
     async def search(self, query: str, locale: Locale) -> list[Hit]:
         if self._knowledge_base is None:
             return []
         return await self._knowledge_base.search(query, locale)
+
+    async def look_up(self, intent: Intent, enquiry: Enquiry) -> Record | None:
+        """The one row this kind of request is answered from, or nothing.
+
+        Nothing means no such row, or none belonging to whoever asked. The
+        gateway is not in a position to say which of those it was, and
+        neither, therefore, is anything above it.
+        """
+        if self._commerce is None:
+            raise CommerceUnavailableError("no commerce gateway is connected")
+
+        if intent is Intent.PRODUCT_AVAILABILITY:
+            if enquiry.product is None:
+                raise RequestNotPlacedError(f"{intent} without a product reference")
+            listed = await self._commerce.product(enquiry.product)
+            return listed.record if isinstance(listed, Found) else None
+
+        if enquiry.order is None or enquiry.customer is None:
+            raise RequestNotPlacedError(f"{intent} without an order and an account")
+
+        if intent is Intent.REFUND_STATUS:
+            owed = await self._commerce.refund(enquiry.order, customer=enquiry.customer)
+            return owed.record if isinstance(owed, Found) else None
+
+        placed = await self._commerce.order(enquiry.order, customer=enquiry.customer)
+        return placed.record if isinstance(placed, Found) else None
+
+    def freshness(self, record: Record) -> ReliabilityLevel:
+        """How far this reading's age lets it carry an answer."""
+        return freshness_of(
+            record, now=self._now(), ttl=self._ttl, readable_for=self._readable_for
+        )
 
 
 def _rate(
@@ -263,6 +350,71 @@ async def _from_knowledge_base(
     )
 
 
+_NOT_FOUND: dict[Intent, ClarificationReason] = {
+    Intent.ORDER_STATUS: ClarificationReason.ORDER_NOT_FOUND,
+    Intent.REFUND_STATUS: ClarificationReason.ORDER_NOT_FOUND,
+    Intent.PRODUCT_AVAILABILITY: ClarificationReason.PRODUCT_NOT_FOUND,
+}
+
+
+async def _from_commerce(proceed: Proceed, *, sources: Sources) -> Outcome:
+    """Answering out of the shop's own records: look one up, cite it, rate it.
+
+    Nothing is ranked, so there is no relevance to measure and the profiles
+    do not ask for one. What takes its place is age: a policy stands until it
+    is replaced, while a delivery state can be wrong by the afternoon.
+
+    A row nobody can show this customer sends them back to check what they
+    typed. It is not an escalation — nothing has gone wrong here, and there is
+    nothing for a colleague to do that the customer cannot do faster — and it
+    is not a report that the reference belongs to somebody else, because that
+    was never established.
+
+    A provider having a bad day is ours to answer for. The customer asked a
+    fair question and our own records were the thing that did not reply, so it
+    waits for one of us rather than turning into an error page.
+    """
+    profile = proceed.profile
+
+    try:
+        record = await sources.look_up(proceed.intent, proceed.enquiry)
+    except CommerceUnavailableError:
+        return Review(reason=ReviewReason.SOURCE_UNAVAILABLE)
+    if record is None:
+        return Clarify(reason=_NOT_FOUND[proceed.intent])
+
+    citations = (
+        Citation(
+            source=Source.COMMERCE,
+            reference=record.cited_as,
+            content_hash=record.content_hash,
+            provider=record.provider,
+            observed_at=record.observed_at,
+            synthetic=record.synthetic,
+        ),
+    )
+    requested = facts_in(proceed.enquiry.message)
+    measured = {
+        Factor.COVERAGE: coverage_of(requested, record.facts),
+        Factor.AUTHORITY: _authority_over(profile, citations),
+        Factor.FRESHNESS: sources.freshness(record),
+    }
+    assessment = _rate(profile, measured)
+    if assessment.route is Route.DIRECT_RESPONSE:
+        # Evidence good enough to send, and no approved sentence to send it
+        # in: the phrase book covers written policy and nothing else yet.
+        # The same answer a French delivery question gets, for the same
+        # reason, and a colleague can close it from the record.
+        return Review(reason=ReviewReason.NOTHING_APPROVED_TO_SAY)
+
+    return Plan(
+        intent=proceed.intent,
+        requested=requested,
+        assessment=assessment,
+        citations=citations,
+    )
+
+
 async def plan_for(
     proceed: Proceed, *, sources: Sources, templates: TemplateLibrary
 ) -> Outcome:
@@ -284,4 +436,6 @@ async def plan_for(
     if missing:
         return Review(reason=ReviewReason.SOURCE_UNAVAILABLE)
 
+    if Source.COMMERCE in profile.required_sources:
+        return await _from_commerce(proceed, sources=sources)
     return await _from_knowledge_base(proceed, sources=sources, templates=templates)

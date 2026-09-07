@@ -65,6 +65,13 @@ class ClarificationReason(StrEnum):
     MISSING_ORDER_ID = "missing_order_id"
     MISSING_PRODUCT_REFERENCE = "missing_product_reference"
 
+    # Something was supplied and matched nothing the customer may see. Two
+    # codes because staff counting them care which was being looked for, and
+    # one sentence because the customer must not learn from the wording
+    # whether the reference exists under somebody else's name.
+    ORDER_NOT_FOUND = "order_not_found"
+    PRODUCT_NOT_FOUND = "product_not_found"
+
 
 class ReviewReason(StrEnum):
     """Why this is waiting for somebody here rather than going out.

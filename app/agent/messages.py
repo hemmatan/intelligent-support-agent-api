@@ -76,6 +76,7 @@ class MessageKey(StrEnum):
     ASK_WHICH_PRODUCT = "ask_which_product"
     ASK_WHAT_IS_MEANT = "ask_what_is_meant"
     ASK_WHICH_FIRST = "ask_which_first"
+    CHECK_THE_REFERENCE = "check_the_reference"
     HANDED_TO_A_SPECIALIST = "handed_to_a_specialist"
     ACCOUNT_NOT_LINKED = "account_not_linked"
     BEING_CHECKED_HERE = "being_checked_here"
@@ -98,6 +99,8 @@ _SAYS: dict[ReasonCode, MessageKey] = {
     ClarificationReason.MISSING_PRODUCT_REFERENCE: MessageKey.ASK_WHICH_PRODUCT,
     ClarificationReason.MULTIPLE_INTENTS: MessageKey.ASK_WHICH_FIRST,
     ClarificationReason.UNRESOLVED_INTENT: MessageKey.ASK_WHAT_IS_MEANT,
+    ClarificationReason.ORDER_NOT_FOUND: MessageKey.CHECK_THE_REFERENCE,
+    ClarificationReason.PRODUCT_NOT_FOUND: MessageKey.CHECK_THE_REFERENCE,
     BlockedReason.CUSTOMER_NOT_LINKED: MessageKey.ACCOUNT_NOT_LINKED,
 }
 
@@ -112,6 +115,7 @@ _FIRST: tuple[MessageKey, ...] = (
     MessageKey.ASK_WHICH_FIRST,
     MessageKey.ASK_FOR_ORDER_NUMBER,
     MessageKey.ASK_WHICH_PRODUCT,
+    MessageKey.CHECK_THE_REFERENCE,
     MessageKey.ASK_WHAT_IS_MEANT,
 )
 

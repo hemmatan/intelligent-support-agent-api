@@ -44,6 +44,14 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
     EMBEDDING_TIMEOUT_SECONDS: float = Field(default=10.0, gt=0)
 
+    # How long a reading of the shop's records stays worth sending, and how
+    # long past that it stays worth showing a colleague. Neither is tuned:
+    # nothing caches yet, so every reading is taken now and lands on the
+    # first rung regardless. They are settings rather than constants because
+    # the day something does cache, this is the dial.
+    COMMERCE_FRESHNESS_TTL_SECONDS: float = Field(default=900.0, gt=0)
+    COMMERCE_READABLE_FOR_SECONDS: float = Field(default=21600.0, gt=0)
+
     # CORS. NoDecode suppresses the JSON pre-parse that pydantic-settings
     # applies to list fields, so the validator below sees the raw string.
     CORS_ORIGINS: Annotated[list[str], NoDecode] = [
