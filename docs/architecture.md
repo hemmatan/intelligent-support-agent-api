@@ -31,7 +31,7 @@ answer", and all need different handling.
 
 ```mermaid
 flowchart TD
-    A[Authenticated customer message] --> B[Assemble context<br/>identity, commerce linkage, locale,<br/>referents carried over from prior turns]
+    A[Authenticated customer message] --> B[Assemble current context<br/>identity, commerce linkage, locale]
     B --> C{Mandatory risk rules}
     C -->|fraud, dispute, compromise, legal threat| ESC[Human escalation]
     C -->|clear| D[Classify intent<br/>listed phrases; no model in this path]
@@ -47,7 +47,7 @@ flowchart TD
 
     G -->|if declared| KB[Approved knowledge base]
     G -->|if declared| COM[Commerce gateway<br/>ownership enforced inside the query]
-    G -->|if declared| HIST[Conversation history<br/>context, not business truth]
+    G -. future contextual lookup .-> HIST[Conversation history<br/>declared, not implemented]
 
     KB --> BM[BM25 lexical]
     KB --> SEM[Multilingual semantic]
@@ -57,7 +57,7 @@ flowchart TD
     FUSE --> EV[Assemble typed evidence]
     COM -->|record found| EV
     COM -->|no record this customer may see| CLR
-    HIST --> EV
+    HIST -. future context only .-> EV
 
     EV --> AVAIL{Required sources usable?}
     AVAIL -->|no| REV[Internal queue<br/>inspect evidence, retry source, or redirect]
@@ -83,6 +83,10 @@ flowchart TD
     AUD --> OUT[Deliver customer-visible response<br/>answer, question, or acknowledgement]
 ```
 
+The dashed history path is a decision for later work, not running code.
+`Source.HISTORY` is declared by the decision profiles, but no history adapter
+or referent resolver exists.
+
 Three things the diagram makes plainer than prose can. Risk rules run before
 anything else, so a payment dispute never reaches a model. Ownership is
 enforced inside the commerce query, so another customer's order is never
@@ -101,13 +105,14 @@ anything.
 
 ## Where answers come from
 
-Three sources, each authoritative for a different kind of claim:
+The design assigns authority to three sources; the third is declared but not
+implemented:
 
 | Source | Authoritative for |
 |---|---|
 | Commerce gateway | Customer, product, cart and order facts |
 | Approved knowledge base | Policies and procedures |
-| Support database | Conversation history and prior tickets |
+| Support database *(declared, not implemented)* | Conversation history and prior tickets |
 
 "Commerce" here means the shop's own operational data — customers, products,
 carts and orders — as opposed to policy, which applies to everyone and rarely
@@ -144,42 +149,48 @@ wins outright. Otherwise the request clarifies and asks which to answer
 first. Answering both in one turn is out of scope.
 
 A conflict is two admissible records disagreeing about **the same material
-claim, the same scope, and the same effective time**. An older conversation
-saying an order was processing does not conflict with a commerce result
-saying it shipped — the order moved. Two policy versions with different
-effective dates do not conflict either. Without the time dimension, every
-order that ever changed state would escalate.
+claim, the same scope, and the same effective time**. If history is added, an
+older conversation saying an order was processing does not conflict with a
+commerce result saying it shipped — the order moved. Two policy versions with
+different effective dates do not conflict either. Without the time dimension,
+every order that ever changed state would escalate.
 
 A real conflict that cannot be resolved escalates. It is never settled by
 taking the higher retrieval score.
 
 The support database is authoritative that a message or ticket **exists**. It
-is never authoritative for a claim made inside one. History can establish
-that the customer previously referred to order 4471; it can never establish
-that 4471 was delivered. A customer asserting "you already refunded me" in an
-earlier message is not evidence of a refund.
+is never authoritative for a claim made inside one. In the history design, a
+previous reference to order 4471 establishes only that the customer named
+4471; it does not establish that 4471 was delivered. A customer asserting
+"you already refunded me" in an earlier message is not evidence of a refund.
 
-### History is read twice, for two different things
+### History has two roles, and neither is built
+
+`Source.HISTORY` is declared as contextual in every decision profile. No
+adapter feeds it into `Sources`, and no context assembler resolves prior
+referents. The two roles below set the boundary for later work; they do not
+describe the running service.
 
 Resolving what a message refers to is not answering it. "Is it still
-available?" names no product, and the previous turn may name one. Reading
-that is context assembly, and it happens **before** triage, which is why the
-flow above loads referents in its first step and why triage receives what is
-already known rather than going to find out.
+available?" names no product, and the previous turn may name one. If history
+is added, resolving that reference belongs to context assembly **before**
+triage. Triage receives what is already known rather than going to find it.
 
-The alternative was letting triage query history when a required input is
-missing. That was rejected: triage exists to decide which sources a request
-may touch, and a triage that reads a source to reach its decision has already
-spent the guarantee it was there to provide. Nothing is fetched on a message's
-behalf until the request has been placed.
+The alternative is letting triage query history when a required input is
+missing. That is rejected: triage exists to decide which business sources a
+request may touch, and a triage that reads one to reach its decision has
+already spent the guarantee it was there to provide. A future context
+assembler gets only the narrower job of recovering an identifier the same
+customer already gave us. No policy or commerce source is fetched until the
+request has been placed.
 
-So history appears in two roles with different authority, and the difference
-is what it is being asked for. Before triage it supplies an identifier the
-customer already gave us — a fact about the conversation, which history owns.
-After a request proceeds it is a contextual source, able to colour an answer
-and never to be the reason for one. In neither role does it establish a
-business fact: a resolved product reference still sends the request to
-commerce to find out whether that product is in stock.
+The two roles carry different authority because they ask different questions.
+Before triage, history supplies an identifier the customer already gave us —
+a fact about the conversation, which history owns. After a request proceeds,
+it is a contextual source, able to colour an answer and never to be the reason
+for one. In neither role does it establish a business fact: a resolved product
+reference still sends the request to commerce to find out whether that product
+is in stock.
 
 ### Commerce data
 
@@ -318,8 +329,8 @@ safe:
 - A required factor missing at runtime is `UNUSABLE`.
 - Only required factors enter the minimum. A profile may declare a source
   contextual, and a contextual source failing must not downgrade an answer
-  the required sources already support. A history lookup timing out cannot
-  block an order status the commerce gateway answered completely.
+  the required sources already support. If history lookup is added, a timeout
+  must not block an order status the commerce gateway answered completely.
 
 Without them, a source failing to return a value could make that factor
 "inapplicable" and *improve* the result. Under weakest-link aggregation that
