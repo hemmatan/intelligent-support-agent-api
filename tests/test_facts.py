@@ -2,7 +2,9 @@
 
 import pytest
 
+from app.agent.commerce import OrderRecord, ProductRecord, Record, RefundRecord
 from app.agent.facts import Fact, coverage_of, facts_in
+from app.agent.intent import _CHASING_A_REFUND, _RULES, Intent
 from app.agent.knowledge import load_corpus
 from app.agent.reliability import Assessment, Factor, ReliabilityLevel, Route
 
@@ -173,3 +175,91 @@ def test_an_ordinary_purchase_is_still_answered() -> None:
         assert route_of(coverage_of(facts_in(question), carried)) is (
             Route.DIRECT_RESPONSE
         )
+
+
+COMMERCE_SUBJECTS: dict[Intent, type[Record]] = {
+    Intent.ORDER_STATUS: OrderRecord,
+    Intent.REFUND_STATUS: RefundRecord,
+    Intent.PRODUCT_AVAILABILITY: ProductRecord,
+}
+
+
+def commerce_wordings() -> list[tuple[Intent, str]]:
+    """Every wording that places a request against the shop's own records."""
+    listed = [
+        (intent, phrase)
+        for intent, phrases in _RULES.items()
+        if intent in COMMERCE_SUBJECTS
+        for phrase in phrases
+    ]
+    listed += [(Intent.REFUND_STATUS, phrase) for phrase in _CHASING_A_REFUND]
+    return listed
+
+
+@pytest.mark.parametrize(("intent", "phrase"), commerce_wordings())
+def test_a_request_we_can_place_is_a_request_we_can_say_what_it_wants(
+    intent: Intent, phrase: str
+) -> None:
+    """Recognising a request and knowing what it asks for are two vocabularies.
+
+    They were written at different times and nothing held them level, so four
+    ways of asking where an order or a refund had got to were placed
+    confidently and then found to be asking for nothing at all. Wanting
+    nothing rates REVIEW_ONLY, so those requests could not have been answered
+    however well the lookup behind them went.
+
+    Parametrised over the wordings themselves. A list of examples would go on
+    passing after somebody added a fifth way of asking.
+
+    Held against the shop's own records and not against written policy, since
+    the two are recognised on different terms. A commerce request is matched
+    by wording that names a whole question, so one that turns out to want
+    nothing is a hole. Policy is matched on the subject — a message with
+    "return" in it is a returns question — and somebody who has said only that
+    much has genuinely asked for nothing in particular. Requiring a fact there
+    would answer "I want to return something" with the entire policy, which is
+    the guessing that wanting nothing is meant to send to a person instead.
+    """
+    assert facts_in(phrase), f"{phrase!r} places a request and asks for nothing"
+
+
+@pytest.mark.parametrize(("intent", "phrase"), commerce_wordings())
+def test_a_request_asks_only_about_its_own_subject(intent: Intent, phrase: str) -> None:
+    """An order question that also asked about stock would rate as half answered.
+
+    Read off the record that owns the subject, so widening what an order is
+    the authority on is one edit and not two.
+    """
+    wanted = facts_in(phrase)
+    subject = COMMERCE_SUBJECTS[intent].ABOUT
+    assert wanted & subject, f"{phrase!r} asks nothing {intent} could answer"
+    assert not wanted - subject, f"{phrase!r} also asks for {sorted(wanted - subject)}"
+
+
+@pytest.mark.parametrize(
+    ("message", "wanted"),
+    [
+        ("has my order arrived", {Fact.ORDER_STATE}),
+        ("when will my order arrive", {Fact.DELIVERY_ESTIMATE}),
+        ("what is the tracking number", {Fact.TRACKING_REFERENCE}),
+        ("is it sold out", {Fact.STOCK_AVAILABILITY}),
+        ("where is my refund", {Fact.REFUND_STATE}),
+        # Two, and the second is settled by nothing, so the first cannot
+        # answer for the pair and somebody who can give a date gets it.
+        ("when will i get my refund", {Fact.REFUND_STATE, Fact.REFUND_TIMING}),
+        ("quand vais-je etre rembourse", {Fact.REFUND_STATE, Fact.REFUND_TIMING}),
+    ],
+)
+def test_a_question_asks_for_the_thing_that_answers_it(
+    message: str, wanted: set[Fact]
+) -> None:
+    """Exactly, because the looser check above cannot see this going wrong.
+
+    Handing every order fact to every order question satisfies "asks for
+    something about its own subject" and answers when a parcel lands with the
+    state it is in. Asked whether an order arrived, wanting a delivery date
+    as well would drag a settled question down to partly covered; asked when
+    it will arrive, wanting only the state would answer a different question
+    and rate it as whole.
+    """
+    assert facts_in(message) == wanted

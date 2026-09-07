@@ -50,6 +50,14 @@ class Fact(StrEnum):
     REFUND_AMOUNT = "refund_amount"
     STOCK_AVAILABILITY = "stock_availability"
 
+    # Asked constantly and settled by nothing. A refund record says where a
+    # payment has got to and never when it will land, so somebody wanting a
+    # date is asking for something no source here holds. Listed anyway, on the
+    # same reasoning as the policy gaps above: asked alongside the state, it
+    # stops the state answering for the pair and sends the question to a
+    # person who can say something true about timing.
+    REFUND_TIMING = "refund_timing"
+
 
 # Phrases again rather than words, for the reason they are phrases in intent
 # detection: "cost" and "return" belong to several of these at once and settle
@@ -196,12 +204,17 @@ _RULES: dict[Fact, Sequence[str]] = {
         "status of my order",
         "my order status",
         "has my order shipped",
-        "has my order been dispatched",
+        # As incomplete as the wording that recognises the request, and for
+        # the same reason: what follows is dispatched, sent or posted, and
+        # enumerating those twice is two lists to keep level with each other.
+        "has my order been",
+        "has my order arrived",
+        "my order arrived yet",
         "ou est ma commande",
         "statut de ma commande",
     ),
     Fact.DELIVERY_ESTIMATE: (
-        "when will my order arrive",
+        "when will my order",
         "when will my parcel arrive",
         "when will it arrive",
         "when will i receive my order",
@@ -221,11 +234,21 @@ _RULES: dict[Fact, Sequence[str]] = {
     Fact.REFUND_STATE: (
         "where is my refund",
         "where's my refund",
+        "where is my money",
         "status of my refund",
         "have i been refunded",
         "has my refund been processed",
+        # Not a bare "money back", which is how somebody asks what the returns
+        # policy is. These name a refund that was expected and has not come.
+        "haven't i got my money back",
+        "haven't i had my money back",
+        "received my refund",
+        "waiting for my refund",
+        "when will i get my refund",
         "ou est mon remboursement",
         "statut de mon remboursement",
+        "recu mon remboursement",
+        "quand vais-je etre rembourse",
     ),
     Fact.REFUND_AMOUNT: (
         "how much will i get back",
@@ -234,13 +257,28 @@ _RULES: dict[Fact, Sequence[str]] = {
         "combien vais-je recevoir",
         "montant du remboursement",
     ),
+    # Asked beside the state, never instead of it, so the state cannot answer
+    # for the pair and the question reaches somebody who can date it.
+    Fact.REFUND_TIMING: (
+        "when will i get my refund",
+        "when will i be refunded",
+        "how long until i get my refund",
+        "quand vais-je etre rembourse",
+        "quand serai-je rembourse",
+    ),
     Fact.STOCK_AVAILABILITY: (
         "in stock",
+        "out of stock",
         "back in stock",
         "still available",
+        "do you still have",
+        "have any left",
+        "sold out",
         "en stock",
+        "en rupture",
         "encore disponible",
         "toujours disponible",
+        "epuise",
     ),
 }
 

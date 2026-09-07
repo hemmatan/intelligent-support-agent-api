@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
-from typing import Generic, Protocol, TypeAlias, TypeVar, runtime_checkable
+from typing import ClassVar, Generic, Protocol, TypeAlias, TypeVar, runtime_checkable
 
 from app.agent.facts import Fact
 from app.agent.reliability import ReliabilityLevel
@@ -90,10 +90,26 @@ class Record:
     observed_at: datetime | None
     synthetic: bool
 
+    ABOUT: ClassVar[frozenset[Fact]] = frozenset()
+    """Every question this kind of record is the authority on.
+
+    Wider than any one of them settles. An order is where somebody looks for
+    a tracking reference whether or not this particular order has reached a
+    courier, and the question is still an order question when the answer is
+    that we cannot give one. Declared so that the wording recognising a
+    request and the wording recognising what it asks for can be held against
+    each other, instead of drifting until a request nobody could answer looks
+    exactly like one nobody asked.
+    """
+
 
 @dataclass(frozen=True, kw_only=True)
 class OrderRecord(Record):
     """One order, as the shop holds it."""
+
+    ABOUT: ClassVar[frozenset[Fact]] = frozenset(
+        {Fact.ORDER_STATE, Fact.TRACKING_REFERENCE, Fact.DELIVERY_ESTIMATE}
+    )
 
     reference: str
     state: OrderState
@@ -123,6 +139,10 @@ class OrderRecord(Record):
 class RefundRecord(Record):
     """What became of a refund against one order."""
 
+    ABOUT: ClassVar[frozenset[Fact]] = frozenset(
+        {Fact.REFUND_STATE, Fact.REFUND_AMOUNT, Fact.REFUND_TIMING}
+    )
+
     order: str
     state: RefundState
     amount: Decimal | None = None
@@ -140,6 +160,8 @@ class RefundRecord(Record):
 @dataclass(frozen=True, kw_only=True)
 class ProductRecord(Record):
     """One catalogue entry, so far as stock goes."""
+
+    ABOUT: ClassVar[frozenset[Fact]] = frozenset({Fact.STOCK_AVAILABILITY})
 
     reference: str
     in_stock: bool
