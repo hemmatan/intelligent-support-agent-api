@@ -106,7 +106,20 @@ class Plan:
     citations: tuple[Citation, ...]
     reply: ApprovedReply | None = None
 
+    # Evidence that cleared every bar and still cannot be sent, because the
+    # thing standing in the way is ours rather than the evidence's. Kept as a
+    # plan instead of thrown away for a bare review: what the request was
+    # taken to be, what it rested on and how each dimension rated are exactly
+    # what the colleague picking it up needs, and they were being dropped on
+    # the floor at the last step.
+    held_back: ReviewReason | None = None
+
     def __post_init__(self) -> None:
+        held = self.held_back
+        if held is not None and self.assessment.route is not Route.DIRECT_RESPONSE:
+            raise MisdirectedReplyError(
+                f"{held} would file a {self.assessment.route} as a review"
+            )
         going_out = self.route is Route.DIRECT_RESPONSE
         if going_out and self.reply is None:
             raise MisdirectedReplyError("a direct answer has to say something")
@@ -124,7 +137,15 @@ class Plan:
 
     @property
     def route(self) -> Route:
-        """Where the weakest required factor sends this."""
+        """Where the weakest required factor sends this.
+
+        Unless something here stopped it that the ratings know nothing about.
+        A reply nobody has written is not weak evidence, and it may only make
+        a request wait, never send one further: an assessment already bound
+        for a specialist cannot be relabelled on the way past.
+        """
+        if self.held_back is not None:
+            return Route.INTERNAL_REVIEW
         return self.assessment.route
 
     @property
@@ -339,7 +360,13 @@ async def _from_knowledge_base(
         reply = templates.say(requested, best.entry, proceed.enquiry.locale)
     except NothingApprovedToSayError:
         # The evidence was good enough. Nobody has written the sentence.
-        return Review(reason=ReviewReason.NOTHING_APPROVED_TO_SAY)
+        return Plan(
+            intent=proceed.intent,
+            requested=requested,
+            assessment=assessment,
+            citations=citations,
+            held_back=ReviewReason.NOTHING_APPROVED_TO_SAY,
+        )
 
     return Plan(
         intent=proceed.intent,
@@ -400,18 +427,20 @@ async def _from_commerce(proceed: Proceed, *, sources: Sources) -> Outcome:
         Factor.FRESHNESS: sources.freshness(record),
     }
     assessment = _rate(profile, measured)
-    if assessment.route is Route.DIRECT_RESPONSE:
-        # Evidence good enough to send, and no approved sentence to send it
-        # in: the phrase book covers written policy and nothing else yet.
-        # The same answer a French delivery question gets, for the same
-        # reason, and a colleague can close it from the record.
-        return Review(reason=ReviewReason.NOTHING_APPROVED_TO_SAY)
-
     return Plan(
         intent=proceed.intent,
         requested=requested,
         assessment=assessment,
         citations=citations,
+        # Evidence good enough to send, and no approved sentence to send it
+        # in: the phrase book covers written policy and stops there. The row
+        # travels with the request either way, so whoever picks it up has
+        # what the decision was taken on.
+        held_back=(
+            ReviewReason.NOTHING_APPROVED_TO_SAY
+            if assessment.route is Route.DIRECT_RESPONSE
+            else None
+        ),
     )
 
 

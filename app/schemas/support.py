@@ -11,6 +11,7 @@ the route says which. Status codes are kept for the request being wrong,
 the caller being unknown, and the service being broken.
 """
 
+from datetime import datetime
 from typing import Annotated, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
@@ -93,6 +94,14 @@ class Citation(BaseModel):
     reference: Said
     content_hash: Said
 
+    # Empty for written policy, which is approved rather than observed. A row
+    # out of the shop's records answers all three, and the one saying none of
+    # this describes a real purchase has to survive as far as the case record
+    # or it stops being a warning to anybody.
+    provider: str | None = None
+    observed_at: datetime | None = None
+    synthetic: bool | None = None
+
 
 class Reliability(BaseModel):
     """How far the evidence carried, named on a scale rather than a percentage."""
@@ -170,6 +179,7 @@ class Escalation(BaseModel):
     message: Said
     wording: Said
     reliability: Reliability | None = None
+    citations: list[Citation] = Field(default_factory=list)
 
 
 class InternalReview(BaseModel):
@@ -183,6 +193,7 @@ class InternalReview(BaseModel):
     message: Said
     wording: Said
     reliability: Reliability | None = None
+    citations: list[Citation] = Field(default_factory=list)
 
 
 SupportReply = Annotated[
@@ -248,12 +259,33 @@ def replied(
     raise TypeError(f"{outcome!r} is not an outcome")
 
 
+def _cited(plan: Plan) -> list[Citation]:
+    """What the decision rested on, kept whatever became of the request.
+
+    An escalation and a review are the outcomes somebody has to pick up, so
+    they are the ones that most need the evidence attached. They were the two
+    carrying none of it.
+    """
+    return [
+        Citation(
+            source=cited.source,
+            reference=cited.reference,
+            content_hash=cited.content_hash,
+            provider=cited.provider,
+            observed_at=cited.observed_at,
+            synthetic=cited.synthetic,
+        )
+        for cited in plan.citations
+    ]
+
+
 def _escalated(
     reasons: list[EscalationReason | EvidenceReason],
     messages: MessageBook,
     locale: Locale,
     case: str,
     reliability: Reliability | None = None,
+    citations: list[Citation] | None = None,
 ) -> Escalation:
     said = messages.tell(reasons, locale, Route.HUMAN_ESCALATION)
     return Escalation(
@@ -262,15 +294,32 @@ def _escalated(
         message=said.sentence,
         wording=said.cited,
         reliability=reliability,
+        citations=citations or [],
     )
 
 
 def _from_plan(
     plan: Plan, messages: MessageBook, locale: Locale, case: str
 ) -> SupportReply:
+    if plan.held_back is not None:
+        # The ratings all passed. What stopped it is ours, and it is the thing
+        # to tell a colleague, so it goes in the column instead of a shortfall
+        # none of the dimensions actually reported.
+        stopped: list[ReviewReason | EvidenceReason] = [plan.held_back]
+        said = messages.tell(stopped, locale, Route.INTERNAL_REVIEW)
+        return InternalReview(
+            case=case,
+            reasons=stopped,
+            message=said.sentence,
+            wording=said.cited,
+            reliability=_reliability(plan),
+            citations=_cited(plan),
+        )
     reasons = sorted(plan.reasons, key=str)
     if plan.route is Route.HUMAN_ESCALATION:
-        return _escalated(list(reasons), messages, locale, case, _reliability(plan))
+        return _escalated(
+            list(reasons), messages, locale, case, _reliability(plan), _cited(plan)
+        )
     if plan.route is Route.INTERNAL_REVIEW:
         said = messages.tell(list(reasons), locale, Route.INTERNAL_REVIEW)
         return InternalReview(
@@ -279,20 +328,14 @@ def _from_plan(
             message=said.sentence,
             wording=said.cited,
             reliability=_reliability(plan),
+            citations=_cited(plan),
         )
     assert plan.reply is not None  # the type refuses a direct answer without one
     return Answer(
         case=case,
         intent=plan.intent,
         reply=plan.reply.text,
-        citations=[
-            Citation(
-                source=cited.source,
-                reference=cited.reference,
-                content_hash=cited.content_hash,
-            )
-            for cited in plan.citations
-        ],
+        citations=_cited(plan),
         wording=list(plan.reply.said),
         reliability=_reliability(plan),
     )

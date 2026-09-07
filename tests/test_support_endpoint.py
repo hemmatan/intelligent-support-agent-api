@@ -2,6 +2,7 @@
 
 from collections.abc import AsyncGenerator, Callable
 from dataclasses import replace
+from datetime import UTC, datetime
 from itertools import count
 
 import pytest
@@ -11,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.answering import Sources
+from app.agent.demo import DemoStorefront
 from app.agent.enquiry import MAX_MESSAGE, Enquiry
 from app.agent.intent import ClassifierUnavailableError, Intent
 from app.agent.knowledge import Locale, load_corpus
@@ -58,13 +60,19 @@ async def signed_in(
     """
     made = count()
 
-    async def make(locale: str = "en", linked: bool = True) -> dict[str, str]:
+    async def make(
+        locale: str = "en", linked: bool = True, commerce_id: int | None = None
+    ) -> dict[str, str]:
         nth = next(made)
         customer = User(
             username=f"asker-{nth}",
             hashed_password="x",
             preferred_locale=locale,
-            external_customer_id=4471 + nth if linked else None,
+            external_customer_id=(
+                commerce_id if commerce_id is not None else 4471 + nth
+            )
+            if linked
+            else None,
         )
         session.add(customer)
         await session.commit()
@@ -624,3 +632,96 @@ async def test_a_case_keeps_what_the_customer_gave_us(
     assert case.product_reference == "SKU-9"
     assert case.external_customer_id is not None
     assert case.sent == body["message"]
+
+
+@pytest.mark.asyncio
+async def test_a_request_held_here_arrives_with_what_it_was_judged_on(
+    async_client: AsyncClient,
+    signed_in: Callable[..., object],
+) -> None:
+    """Half a returns question, so a colleague finishes it from the entry.
+
+    They were getting a route and a shortfall and nothing else. What the
+    decision rested on stopped at the planner, so the case a person opens
+    named neither the document nor how any dimension had rated — and the
+    readme has been promising both since the case table landed.
+    """
+    headers = await signed_in()  # type: ignore[misc]
+    response = await async_client.post(
+        MESSAGES,
+        json={
+            "message": (
+                "How long do I have to return a jacket, and who pays return shipping?"
+            )
+        },
+        headers=headers,
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["route"] == "internal_review"
+    assert body["reasons"] == ["evidence_does_not_cover_the_question"]
+
+    (cited,) = body["citations"]
+    assert cited["reference"] == "kb:returns.standard.en.v1"
+    assert cited["content_hash"].startswith("sha256:")
+    # Written policy is approved rather than observed, so the three fields
+    # that answer "who said this and when" have nothing to say about it.
+    assert cited["provider"] is None
+    assert cited["observed_at"] is None
+    assert cited["synthetic"] is None
+
+    assert body["reliability"]["factors"]["coverage"] == "review_only"
+
+
+SHOP_NOW = datetime(2026, 9, 7, 12, 0, tzinfo=UTC)
+
+
+@pytest.mark.asyncio
+async def test_a_reply_resting_on_invented_data_says_so_to_the_customer(
+    async_client: AsyncClient,
+    signed_in: Callable[..., object],
+) -> None:
+    """The marker has to survive the whole way or it warns nobody.
+
+    A row knows it was invented, and until now that died at the planner: the
+    published citation had three fields and none of them was this one. A
+    reply that reached somebody without it would look exactly like a reply
+    built on a real purchase.
+
+    This is also the first time the endpoint has been wired to the shop at
+    all. The fixture built sources without it, so every commerce case here
+    was quietly still testing the gate that refuses when nothing is
+    connected.
+    """
+    shop = SupportAgent(
+        sources=Sources(
+            knowledge_base=PolicyIndex(load_corpus()),
+            commerce=DemoStorefront(now=lambda: SHOP_NOW),
+            now=lambda: SHOP_NOW,
+        ),
+        templates=load_templates(),
+        messages=load_messages(),
+    )
+    app.dependency_overrides[support_agent] = lambda: shop
+    try:
+        headers = await signed_in(commerce_id=1)  # type: ignore[misc]
+        response = await async_client.post(
+            MESSAGES,
+            json={"message": "Where is my order?", "order_id": "4471"},
+            headers=headers,
+        )
+    finally:
+        app.dependency_overrides.pop(support_agent, None)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["route"] == "internal_review"
+    assert body["reasons"] == ["nothing_approved_to_say"]
+
+    (cited,) = body["citations"]
+    assert cited["source"] == "commerce"
+    assert cited["reference"] == "demo:order:4471"
+    assert cited["provider"] == "demo"
+    assert cited["synthetic"] is True
+    assert cited["observed_at"] == "2026-09-07T12:00:00Z"
+    assert body["reliability"]["factors"]["freshness"] == "ready"

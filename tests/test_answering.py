@@ -395,7 +395,13 @@ def test_neither_half_of_the_delivery_rule_can_be_broken() -> None:
 async def test_good_evidence_nobody_wrote_a_sentence_for_waits(
     sources: Sources,
 ) -> None:
-    """The evidence was fine. The phrase book is what is missing."""
+    """The evidence was fine. The phrase book is what is missing.
+
+    And it arrives carrying what it was going to be answered with. A
+    colleague closing this wants the entry it found, the reading of the
+    question and how each dimension rated; all of it used to be dropped at
+    the last step for a bare note saying no wording existed.
+    """
     outcome = await plan_for(
         Proceed(
             intent=Intent.RETURN_POLICY,
@@ -404,7 +410,33 @@ async def test_good_evidence_nobody_wrote_a_sentence_for_waits(
         sources=sources,
         templates=TemplateLibrary([]),
     )
-    assert outcome == Review(reason=ReviewReason.NOTHING_APPROVED_TO_SAY)
+    assert isinstance(outcome, Plan)
+    assert outcome.route is Route.INTERNAL_REVIEW
+    assert outcome.held_back is ReviewReason.NOTHING_APPROVED_TO_SAY
+    assert outcome.reply is None
+    assert outcome.intent is Intent.RETURN_POLICY
+    assert outcome.assessment.required[Factor.COVERAGE] is ReliabilityLevel.READY
+    assert [cited.reference for cited in outcome.citations] == [
+        "kb:returns.standard.en.v1"
+    ]
+
+
+def test_a_missing_sentence_may_delay_a_reply_and_never_divert_one() -> None:
+    """It is a fault here, so it can only ever make a request wait.
+
+    Set on evidence already bound for a specialist it would relabel that as
+    something a colleague could close, which is a downgrade wearing the
+    clothes of a formatting problem.
+    """
+    unusable = Assessment(required={Factor.COVERAGE: ReliabilityLevel.UNUSABLE})
+    with pytest.raises(MisdirectedReplyError, match="as a review"):
+        Plan(
+            intent=Intent.RETURN_POLICY,
+            requested=frozenset({Fact.RETURN_WINDOW}),
+            assessment=unusable,
+            citations=(),
+            held_back=ReviewReason.NOTHING_APPROVED_TO_SAY,
+        )
 
 
 def test_an_answer_sent_citing_nothing_is_refused() -> None:
@@ -460,7 +492,15 @@ async def test_an_order_question_now_reaches_the_shop_instead_of_a_person(
     outcome = await plan_for(
         asking("Where is my order?"), sources=shop, templates=templates
     )
-    assert outcome == Review(reason=ReviewReason.NOTHING_APPROVED_TO_SAY)
+    assert isinstance(outcome, Plan)
+    assert outcome.route is Route.INTERNAL_REVIEW
+    assert outcome.held_back is ReviewReason.NOTHING_APPROVED_TO_SAY
+    # Everything a colleague needs, which a bare note carried none of.
+    assert outcome.intent is Intent.ORDER_STATUS
+    assert outcome.assessment.required[Factor.FRESHNESS] is ReliabilityLevel.READY
+    (cited,) = outcome.citations
+    assert cited.reference == "demo:order:4471"
+    assert cited.synthetic is True
 
 
 @pytest.mark.asyncio
