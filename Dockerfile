@@ -33,7 +33,7 @@ COPY app ./app
 COPY assets ./assets
 COPY alembic.ini main.py start.sh ./
 
-RUN chmod 0555 start.sh
+RUN chmod --recursive a=rX /app
 
 EXPOSE 8000
 
