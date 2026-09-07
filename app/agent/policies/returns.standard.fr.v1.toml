@@ -1,0 +1,34 @@
+id = "returns.standard"
+locale = "fr"
+version = 1
+approved = true
+kind = "return_policy"
+
+prose_template = """
+Vous pouvez retourner {eligibility} dans les {return_window_days} jours suivant
+la livraison pour un remboursement intégral. Les articles doivent être non
+portés, dans leur emballage d'origine, et {proof_of_purchase_required}. Nous
+n'acceptons pas le retour de {excluded_categories} pour des raisons d'hygiène.
+Les articles soldés {sale_items_follow_standard_window}, et
+{final_sale_returnable}.
+"""
+
+[claims]
+return_window_days = 30
+eligibility = "standard_items"
+excluded_categories = ["underwear", "swimwear", "pierced_jewellery"]
+sale_items_follow_standard_window = true
+final_sale_returnable = false
+proof_of_purchase_required = true
+
+[words]
+standard_items = "la plupart des articles"
+underwear = "sous-vêtements"
+swimwear = "maillots de bain"
+pierced_jewellery = "bijoux percés"
+proof_of_purchase_required_true = "renvoyés avec un justificatif"
+proof_of_purchase_required_false = "renvoyés sans justificatif"
+sale_items_follow_standard_window_true = "suivent les mêmes conditions"
+sale_items_follow_standard_window_false = "ne peuvent pas être renvoyés"
+final_sale_returnable_true = "la vente définitive peut l'être également"
+final_sale_returnable_false = "la vente définitive ne le peut pas"

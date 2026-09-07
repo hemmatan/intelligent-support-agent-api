@@ -1,0 +1,6 @@
+key = "ask_which_product"
+locale = "fr"
+version = 1
+approved = true
+
+sentence = "Merci de nous indiquer de quel article il s'agit."

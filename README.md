@@ -1,8 +1,21 @@
-# DornaShop Support API
+<p align="center">
+  <img src="assets/dorna-shop-logo.png" alt="DornaShop" width="320">
+</p>
+
+<h1 align="center">DornaShop Support Agent</h1>
+
+<p align="center">
+  An evidence-grounded support API: every answer cites the approved policy it
+  came from, and anything it cannot ground is routed to a person instead.
+</p>
+
 
 A FastAPI service for DornaShop's intelligent customer-support agent. The
 current foundation provides authentication, authorization, asynchronous database
 access, migrations, and Docker-based development workflows.
+
+The agent's design and the reasoning behind it are in
+[docs/architecture.md](docs/architecture.md).
 
 ## Features
 
@@ -15,6 +28,8 @@ access, migrations, and Docker-based development workflows.
 - **Docker Development Workflow**: Containerized local setup; see the Docker section for current limitations
 - **Developer-friendly**: Auto-reload, debugging, and development tools
 - **Validated Configuration**: Namespaced settings with production secret and CORS safeguards
+- **Grounded Answers**: Every customer-facing sentence is approved, versioned and content-hashed; figures come from structured claims, never from prose
+- **Four Honest Outcomes**: Answer, clarify, escalate or hold for review, each with a reason code, a rendered message and a recorded case
 
 ## Project Structure
 
@@ -34,6 +49,7 @@ access, migrations, and Docker-based development workflows.
 ├── Dockerfile               # Development-oriented application image
 ├── alembic.ini              # Alembic configuration
 ├── .env.example             # Documented configuration template
+├── docs/architecture.md     # Support-agent design decisions
 ├── main.py                  # Application entry point
 ├── pyproject.toml           # Project dependencies and metadata
 ├── start.sh                 # Baseline container startup script
@@ -106,7 +122,17 @@ access, migrations, and Docker-based development workflows.
    alembic upgrade head
    ```
 
-5. Start the application:
+5. Create the demo customer, so the commerce questions have records to reach:
+   ```bash
+   python -m app.seed
+   ```
+
+   It prints an account and the references that account can ask about. The
+   shop's records are invented — every row says so, all the way into the
+   stored case — and this refuses to run in production, or anywhere
+   `DORNASHOP_COMMERCE_DEMO_RECORDS` is off.
+
+6. Start the application:
    ```bash
    uvicorn main:app --reload
    ```
@@ -132,6 +158,121 @@ Once the application is running, you can access:
 - `GET /api/v1/auth/me` - Get the current user using an access token
 - `POST /api/v1/auth/api-tokens` - Create an API token that is stored only as a hash
 - `GET /api/v1/auth/api-me` - Get the current user using an API token
+
+### Support
+
+- `POST /api/v1/support/messages` - Ask the agent a question
+
+Send a question as a signed-in customer. The language of the reply comes from
+the account, not the request.
+
+```jsonc
+POST /api/v1/support/messages
+Authorization: Bearer <access token>
+
+{
+  "message": "How long do I have to return a jacket?",
+  "order_id": "4471",              // optional
+  "product_reference": "12"        // optional
+}
+```
+
+Those two are references the seeded demo customer can actually reach; `python
+-m app.seed` prints the current list. A question about an order or a refund
+needs `order_id`, and one about stock needs `product_reference` — without
+them the reply asks for the missing one rather than guessing.
+
+Four things can come back, and **all of them are `200`**. Being asked a
+question, being passed to a person and being held for checking are decisions
+about a request that was understood; the `route` says which. Status codes are
+kept for a malformed body (`422`) and an unknown caller (`401`).
+
+Every reply carries a `case`, which is the record the decision was written
+into before the reply was sent.
+
+**`direct_response`** — answered from approved wording, with the evidence it
+rests on:
+
+```json
+{
+  "route": "direct_response",
+  "case": "9c8e2f1a-...",
+  "intent": "return_policy",
+  "reply": "Returns are accepted within 30 days of delivery.",
+  "citations": [
+    {
+      "source": "knowledge_base",
+      "reference": "kb:returns.standard.en.v1",
+      "content_hash": "sha256:..."
+    }
+  ],
+  "wording": ["say:return_window.en.v1@sha256:..."],
+  "reliability": {
+    "level": "acceptable",
+    "ordinal": 2,
+    "scale": 3,
+    "factors": {"authority": "ready", "coverage": "ready", "relevance": "acceptable"}
+  }
+}
+```
+
+**`clarification`** — something is missing that the customer can supply:
+
+```json
+{
+  "route": "clarification",
+  "case": "9c8e2f1a-...",
+  "reason": "missing_order_id",
+  "message": "Please send us your order number and we will look it up.",
+  "wording": "say:ask_for_order_number.en.v1@sha256:..."
+}
+```
+
+**`human_escalation`** — a person takes it, and a case is waiting for them:
+
+```json
+{
+  "route": "human_escalation",
+  "case": "9c8e2f1a-...",
+  "reasons": ["payment_dispute"],
+  "message": "We have passed this to a member of our team to handle personally.",
+  "wording": "say:handed_to_a_specialist.en.v1@sha256:...",
+  "reliability": null
+}
+```
+
+**`internal_review`** — nothing is wrong with the request; something is wrong
+with us, and somebody here finishes it. Same shape as an escalation, with
+`route: "internal_review"`.
+
+`reason` and `message` are not alternatives. The code is stable and
+machine-readable — branch on it, count it, assert against it — while the
+message is written for a person and translated. Reading the message to work
+out what happened means reading the wrong field.
+
+### Staff
+
+Requires the `support_agent` or `admin` role. This is the other half of
+escalating: the queue exists so that telling a customer somebody is dealing
+with their message is true.
+
+- `GET /api/v1/support/cases` - Requests still waiting for a person, oldest first
+- `POST /api/v1/support/cases/{reference}/claim` - Put your name against one
+- `POST /api/v1/support/cases/{reference}/resolve` - Close it, recording what was done
+
+A case carries what the decision rested on — the message, the order number and
+product reference the customer supplied, the sources the request was permitted
+to read, the route and reasons, the words they received, the evidence cited and
+the rating each dimension earned — so nobody has to write back for something
+already given.
+
+Claiming and resolving are conditional writes, so two people cannot both be
+told a case is theirs. Who took it on and who finished it are recorded
+separately: covering a colleague's shift should credit the person who did the
+work. What happens after that — drafting, editing, replying to the customer —
+is outside this API. Answered requests do
+not appear: they are records, not work. Resolving twice is refused, because the
+second note would replace the account of whoever did it.
 
 ### System
 
@@ -160,17 +301,30 @@ variables, which can be set in a `.env` file. Unprefixed variables such as
 | `DORNASHOP_DB_HOST` | PostgreSQL host | `""` |
 | `DORNASHOP_DB_PORT` | PostgreSQL port, `1`-`65535` | `5432` when omitted |
 | `DORNASHOP_DB_NAME` | Database name, or SQLite file path. Required for PostgreSQL | `db.sqlite3` for SQLite |
+| `DORNASHOP_COMMERCE_DEMO_RECORDS` | Serve invented order, refund and stock rows. **Must be `false` in production** | `true` |
+| `DORNASHOP_COMMERCE_FRESHNESS_TTL_SECONDS` | How long a reading of those records stays worth sending | `900` |
+| `DORNASHOP_COMMERCE_READABLE_FOR_SECONDS` | How long past that it stays worth showing a colleague; may not be shorter than the line above | `21600` |
 
-In production, set `DORNASHOP_ENVIRONMENT=production`, provide a unique secret,
-and list explicit CORS origins. The application refuses to start rather than
-serve traffic with an unsafe configuration. It rejects, at startup:
+In production, set `DORNASHOP_ENVIRONMENT=production`, provide a unique
+secret, list explicit CORS origins, and set
+`DORNASHOP_COMMERCE_DEMO_RECORDS=false`. The application refuses to start
+rather than serve traffic with an unsafe configuration. It rejects, at
+startup:
 
 - the development secret, or any secret under 32 characters, in production;
 - wildcard CORS origins in production;
 - debug mode in production;
 - PostgreSQL selected without a complete set of credentials;
 - non-positive token lifetimes, out-of-range ports, and API prefixes the
-  router would refuse.
+  router would refuse;
+- invented commerce records in production, since a delivery state nobody
+  looked up must not reach somebody who placed a real order;
+- a readable window shorter than the freshness window, which describes no
+  scale a reading could be rated on.
+
+With the invented records switched off, nothing answers order, refund or
+stock questions, and they wait for a colleague. That is the honest state
+until a client for a real shop is written; see `docs/architecture.md`.
 
 ## Roles
 
@@ -233,23 +387,68 @@ alembic upgrade head
 
 ## Docker
 
-The current Docker setup is intentionally development-oriented:
+The repository provides three Compose entry points:
 
 - `docker-compose.yml`: Baseline local/demo setup without auto-reload.
 - `docker-compose.dev.yml`: Local development setup with source mounting and hot-reload.
+- `docker-compose.prod.yml`: Production topology without source mounting.
 
-Neither is suitable for production as it stands. The image builds in a single
-stage, runs as root, and has no health check; `docker-compose.yml` bind-mounts
-the source tree. Known work before a production deployment:
+The build context is filtered by `.dockerignore`: local environment files,
+virtual environments, repository history, databases and generated caches are
+never sent to the builder. Runtime assets remain available to the image.
 
-- A multi-stage build on `python:3.11-slim` with a non-root runtime user.
-- A `.dockerignore`, so the build context excludes `.venv/`, `.git/`, local
-  databases and any `.env`.
-- A container health check and graceful shutdown handling.
-- PostgreSQL with persistent storage and migrations run as a one-shot service.
-- A production Compose file without source-code bind mounts.
-- A production dependency set. `requirements.txt` is currently exported with
-  `--extra dev`, so the image also installs pytest, mypy, Ruff and pre-commit.
+The builder installs production dependencies directly from `uv.lock` with
+`uv sync --frozen --no-dev`. It does not maintain a second exported lock file
+that could drift from the environment tested in CI, and development tools are
+not installed in the runtime image.
+
+The image uses a multi-stage `python:3.11-slim` build. Dependencies are
+installed outside the runtime stage, which receives only the virtual
+environment, application code, migrations, startup script and served assets.
+
+The runtime process uses the dedicated `dornashop` account with UID/GID 10001.
+Dependencies and application files remain root-owned and read-only to that
+account. Local and development Compose mount source code read-only and keep
+SQLite in a named volume at `/var/lib/dornashop`, the image's only writable
+application-state directory. Production uses PostgreSQL instead.
+
+Docker probes `/health` from inside the container every 30 seconds, after a
+10-second startup grace period. The probe uses Python's standard library, so
+the image does not carry a separate HTTP client solely for health checks.
+
+`start.sh` does not modify the database. It only replaces its shell process
+with Uvicorn, which therefore runs as PID 1 and receives container termination
+signals directly during a graceful stop.
+
+The baseline and production Compose stacks run migrations in a one-shot
+service and start the API only after that service succeeds. This gives schema
+changes one owner instead of running them in every API replica. The development
+script still migrates automatically before its reload server because that path
+is deliberately single-replica. Running the image without Compose requires an
+explicit `alembic upgrade head` deployment step before the API starts.
+
+The production stack also starts PostgreSQL with a named volume and waits for
+its health check before migrating. The API container uses the image's health
+check and has no source-code bind mount.
+
+CI builds the production runtime image and starts this complete Compose stack
+on an ephemeral host port. It checks the runtime user and dependency boundary,
+the database and API health checks, the migration exit status, and the public
+`/health` endpoint before removing the stack and its test volume.
+
+Set `DORNASHOP_SECRET_KEY`, `DORNASHOP_DB_PASSWORD` and
+`DORNASHOP_CORS_ORIGINS` in the deployment environment before starting it:
+
+```bash
+docker compose -f docker-compose.prod.yml up --build
+```
+
+The database name, database user and published HTTP port default to
+`dornashop`, `dornashop` and `8000`, respectively.
+`DORNASHOP_HUGGINGFACE_API_TOKEN` is passed through when configured; without
+it, retrieval uses the application's documented lexical fallback. TLS
+termination, external secret storage and database backups remain deployment
+environment responsibilities.
 
 ## Known limitations
 

@@ -38,6 +38,28 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=15, gt=0)
     REFRESH_TOKEN_EXPIRE_DAYS: int = Field(default=7, gt=0)
 
+    # Retrieval. Absent, searching stays lexical: an optional second ranker
+    # being unconfigured is not a reason to refuse to start.
+    HUGGINGFACE_API_TOKEN: SecretStr | None = None
+    EMBEDDING_MODEL: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    EMBEDDING_TIMEOUT_SECONDS: float = Field(default=10.0, gt=0)
+
+    # How long a reading of the shop's records stays worth sending, and how
+    # long past that it stays worth showing a colleague. Neither is tuned:
+    # nothing caches yet, so every reading is taken now and lands on the
+    # first rung regardless. They are settings rather than constants because
+    # the day something does cache, this is the dial.
+    COMMERCE_FRESHNESS_TTL_SECONDS: float = Field(default=900.0, gt=0)
+    COMMERCE_READABLE_FOR_SECONDS: float = Field(default=21600.0, gt=0)
+
+    # Rows for a shop that does not exist, so that the commerce path can be
+    # demonstrated. On by default because development is the only place
+    # anything is currently wired, and refused outright in production: an
+    # invented delivery state sent to somebody who placed a real order is
+    # the worst thing this service could do, and it should take a decision
+    # to arrange rather than an oversight.
+    COMMERCE_DEMO_RECORDS: bool = True
+
     # CORS. NoDecode suppresses the JSON pre-parse that pydantic-settings
     # applies to list fields, so the validator below sees the raw string.
     CORS_ORIGINS: Annotated[list[str], NoDecode] = [
@@ -109,6 +131,23 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def check_the_freshness_windows_describe_a_scale(self) -> Self:
+        """Legible for less time than it is worth sending is a scale inverted.
+
+        Each is positive on its own and the pair is what has to make sense.
+        Left unchecked the contradiction surfaced with somebody waiting, as a
+        five hundred from the middle of a rating, where every other bad value
+        in this file stops the process instead.
+        """
+        if self.COMMERCE_READABLE_FOR_SECONDS < self.COMMERCE_FRESHNESS_TTL_SECONDS:
+            raise ValueError(
+                "DORNASHOP_COMMERCE_READABLE_FOR_SECONDS is shorter than "
+                "DORNASHOP_COMMERCE_FRESHNESS_TTL_SECONDS, so a reading would "
+                "stop being readable before it stopped being fresh"
+            )
+        return self
+
+    @model_validator(mode="after")
     def validate_production_security(self) -> Self:
         """Fail fast when production uses unsafe development defaults."""
         if self.ENVIRONMENT is not Environment.PRODUCTION:
@@ -122,6 +161,11 @@ class Settings(BaseSettings):
             raise ValueError("Wildcard CORS origins are forbidden in production")
         if self.DEBUG:
             raise ValueError("DEBUG must be disabled in production")
+        if self.COMMERCE_DEMO_RECORDS:
+            raise ValueError(
+                "DORNASHOP_COMMERCE_DEMO_RECORDS must be off in production; "
+                "invented order records must not reach a paying customer"
+            )
         return self
 
     def _url(self, database: str) -> URL:

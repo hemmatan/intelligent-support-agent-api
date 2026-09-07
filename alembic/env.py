@@ -16,7 +16,8 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.core.config import settings
 from app.db.base import Base
-from app.models.user import *  # Import all models here for autogenerate support
+from app.models.support import *  # Import all models here for autogenerate support
+from app.models.user import *  # noqa: F403
 
 # This is the Alembic Config object, which provides access to the values
 # within the .ini file

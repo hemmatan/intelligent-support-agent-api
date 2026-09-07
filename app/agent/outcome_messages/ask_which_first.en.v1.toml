@@ -1,0 +1,6 @@
+key = "ask_which_first"
+locale = "en"
+version = 1
+approved = true
+
+sentence = "Your message asks about more than one thing. Please tell us which to answer first."

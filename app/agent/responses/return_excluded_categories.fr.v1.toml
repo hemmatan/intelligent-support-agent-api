@@ -1,0 +1,11 @@
+fact = "return_excluded_categories"
+locale = "fr"
+version = 1
+approved = true
+
+sentence = "Nous ne pouvons pas accepter le retour de {excluded_categories}, pour des raisons d'hygiène."
+
+[words]
+underwear = "sous-vêtements"
+swimwear = "maillots de bain"
+pierced_jewellery = "bijoux percés"

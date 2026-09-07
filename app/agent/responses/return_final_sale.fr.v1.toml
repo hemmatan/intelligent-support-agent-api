@@ -1,0 +1,10 @@
+fact = "return_final_sale"
+locale = "fr"
+version = 1
+approved = true
+
+sentence = "Les articles en vente définitive {final_sale_returnable}."
+
+[words]
+final_sale_returnable_true = "peuvent être retournés comme les autres"
+final_sale_returnable_false = "ne peuvent pas être retournés"

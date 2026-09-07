@@ -1,0 +1,6 @@
+key = "handed_to_a_specialist"
+locale = "fr"
+version = 1
+approved = true
+
+sentence = "Nous avons transmis votre message à un membre de notre équipe qui s'en occupe personnellement."

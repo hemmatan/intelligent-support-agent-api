@@ -1,0 +1,11 @@
+fact = "return_excluded_categories"
+locale = "en"
+version = 1
+approved = true
+
+sentence = "We cannot accept returns of {excluded_categories}, for hygiene reasons."
+
+[words]
+underwear = "underwear"
+swimwear = "swimwear"
+pierced_jewellery = "pierced jewellery"

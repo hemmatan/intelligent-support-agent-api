@@ -1,7 +1,9 @@
 #!/bin/sh
 
-# Run DB migrations
+set -e
+
+# This convenience path is for the single-replica development stack only.
 alembic upgrade head
 
-# Start the application in development mode with auto-reload
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+# Replace the shell so the reload process receives container stop signals.
+exec uvicorn main:app --host 0.0.0.0 --port 8000 --reload

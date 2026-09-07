@@ -1,13 +1,15 @@
-version: "3.8"
-
 services:
   web:
     build: .
     command: ./start-dev.sh
     volumes:
-      - .:/app
+      - .:/app:ro
+      - sqlite_data:/var/lib/dornashop
     ports:
       - "8000:8000"
     environment:
       - DORNASHOP_ENVIRONMENT=development
       - DORNASHOP_DEBUG=true
+
+volumes:
+  sqlite_data:

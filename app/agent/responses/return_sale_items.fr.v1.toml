@@ -1,0 +1,10 @@
+fact = "return_sale_items"
+locale = "fr"
+version = 1
+approved = true
+
+sentence = "Les articles soldés {sale_items_follow_standard_window}."
+
+[words]
+sale_items_follow_standard_window_true = "peuvent être retournés aux mêmes conditions que les autres"
+sale_items_follow_standard_window_false = "ne peuvent pas être retournés"

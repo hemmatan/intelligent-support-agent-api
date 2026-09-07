@@ -1,0 +1,6 @@
+key = "account_not_linked"
+locale = "en"
+version = 1
+approved = true
+
+sentence = "Your shop account is not yet connected to this profile. A member of our team is putting that right."

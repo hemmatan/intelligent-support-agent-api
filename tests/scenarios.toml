@@ -1,0 +1,487 @@
+[suite]
+name = "deterministic support-routing scenarios"
+observed_at = 2026-09-07T12:00:00Z
+scope = "Fixed regression cases only; mandatory-escalation recall here is not real-world recall."
+
+# Risk boundaries: every category is represented by a report and an enquiry
+# about the same subject, in both supported locales. Only the reports are
+# mandatory escalations.
+
+[[scenario]]
+id = "payment_dispute_report_en"
+message = "I was charged twice"
+locale = "en"
+account_linked = true
+mandatory_escalation = true
+risk_subject = "payment_dispute"
+risk_form = "report"
+tags = ["risk_boundary"]
+expected_intents = []
+expected_risks = ["payment_dispute"]
+expected_sources = []
+expected_claims = []
+expected_route = "human_escalation"
+expected_reasons = ["payment_dispute"]
+
+[[scenario]]
+id = "payment_dispute_enquiry_en"
+message = "What is your policy on double billing?"
+locale = "en"
+account_linked = true
+mandatory_escalation = false
+risk_subject = "payment_dispute"
+risk_form = "enquiry"
+tags = ["risk_boundary"]
+expected_intents = []
+expected_risks = []
+expected_sources = []
+expected_claims = []
+expected_route = "clarification"
+expected_reasons = ["unresolved_intent"]
+
+[[scenario]]
+id = "payment_dispute_report_fr"
+message = "J'ai ete debite deux fois"
+locale = "fr"
+account_linked = true
+mandatory_escalation = true
+risk_subject = "payment_dispute"
+risk_form = "report"
+tags = ["risk_boundary"]
+expected_intents = []
+expected_risks = ["payment_dispute"]
+expected_sources = []
+expected_claims = []
+expected_route = "human_escalation"
+expected_reasons = ["payment_dispute"]
+
+[[scenario]]
+id = "payment_dispute_enquiry_fr"
+message = "Quelle est votre politique en cas de double facturation ?"
+locale = "fr"
+account_linked = true
+mandatory_escalation = false
+risk_subject = "payment_dispute"
+risk_form = "enquiry"
+tags = ["risk_boundary"]
+expected_intents = []
+expected_risks = []
+expected_sources = []
+expected_claims = []
+expected_route = "clarification"
+expected_reasons = ["unresolved_intent"]
+
+[[scenario]]
+id = "suspected_fraud_report_en"
+message = "Someone used my card"
+locale = "en"
+account_linked = true
+mandatory_escalation = true
+risk_subject = "suspected_fraud"
+risk_form = "report"
+tags = ["risk_boundary"]
+expected_intents = []
+expected_risks = ["suspected_fraud"]
+expected_sources = []
+expected_claims = []
+expected_route = "human_escalation"
+expected_reasons = ["suspected_fraud"]
+
+[[scenario]]
+id = "suspected_fraud_enquiry_en"
+message = "How can I avoid unauthorised charges?"
+locale = "en"
+account_linked = true
+mandatory_escalation = false
+risk_subject = "suspected_fraud"
+risk_form = "enquiry"
+tags = ["risk_boundary"]
+expected_intents = []
+expected_risks = []
+expected_sources = []
+expected_claims = []
+expected_route = "clarification"
+expected_reasons = ["unresolved_intent"]
+
+[[scenario]]
+id = "suspected_fraud_report_fr"
+message = "Je n'ai pas commande cet article"
+locale = "fr"
+account_linked = true
+mandatory_escalation = true
+risk_subject = "suspected_fraud"
+risk_form = "report"
+tags = ["risk_boundary"]
+expected_intents = []
+expected_risks = ["suspected_fraud"]
+expected_sources = []
+expected_claims = []
+expected_route = "human_escalation"
+expected_reasons = ["suspected_fraud"]
+
+[[scenario]]
+id = "suspected_fraud_enquiry_fr"
+message = "Comment prevenir la fraude ?"
+locale = "fr"
+account_linked = true
+mandatory_escalation = false
+risk_subject = "suspected_fraud"
+risk_form = "enquiry"
+tags = ["risk_boundary"]
+expected_intents = []
+expected_risks = []
+expected_sources = []
+expected_claims = []
+expected_route = "clarification"
+expected_reasons = ["unresolved_intent"]
+
+[[scenario]]
+id = "account_compromise_report_en"
+message = "Someone logged into my account last night"
+locale = "en"
+account_linked = true
+mandatory_escalation = true
+risk_subject = "account_compromise"
+risk_form = "report"
+tags = ["risk_boundary"]
+expected_intents = []
+expected_risks = ["account_compromise"]
+expected_sources = []
+expected_claims = []
+expected_route = "human_escalation"
+expected_reasons = ["account_compromise"]
+
+[[scenario]]
+id = "account_compromise_enquiry_en"
+message = "How do you protect accounts?"
+locale = "en"
+account_linked = true
+mandatory_escalation = false
+risk_subject = "account_compromise"
+risk_form = "enquiry"
+tags = ["risk_boundary"]
+expected_intents = []
+expected_risks = []
+expected_sources = []
+expected_claims = []
+expected_route = "clarification"
+expected_reasons = ["unresolved_intent"]
+
+[[scenario]]
+id = "account_compromise_report_fr"
+message = "Quelqu'un a accede a mon compte"
+locale = "fr"
+account_linked = true
+mandatory_escalation = true
+risk_subject = "account_compromise"
+risk_form = "report"
+tags = ["risk_boundary"]
+expected_intents = []
+expected_risks = ["account_compromise"]
+expected_sources = []
+expected_claims = []
+expected_route = "human_escalation"
+expected_reasons = ["account_compromise"]
+
+[[scenario]]
+id = "account_compromise_enquiry_fr"
+message = "Comment garder mon compte en securite ?"
+locale = "fr"
+account_linked = true
+mandatory_escalation = false
+risk_subject = "account_compromise"
+risk_form = "enquiry"
+tags = ["risk_boundary"]
+expected_intents = []
+expected_risks = []
+expected_sources = []
+expected_claims = []
+expected_route = "clarification"
+expected_reasons = ["unresolved_intent"]
+
+[[scenario]]
+id = "legal_threat_report_en"
+message = "My lawyer will be in touch"
+locale = "en"
+account_linked = true
+mandatory_escalation = true
+risk_subject = "legal_threat"
+risk_form = "report"
+tags = ["risk_boundary"]
+expected_intents = []
+expected_risks = ["legal_threat"]
+expected_sources = []
+expected_claims = []
+expected_route = "human_escalation"
+expected_reasons = ["legal_threat"]
+
+[[scenario]]
+id = "legal_threat_enquiry_en"
+message = "What is your policy on disputes?"
+locale = "en"
+account_linked = true
+mandatory_escalation = false
+risk_subject = "legal_threat"
+risk_form = "enquiry"
+tags = ["risk_boundary"]
+expected_intents = []
+expected_risks = []
+expected_sources = []
+expected_claims = []
+expected_route = "clarification"
+expected_reasons = ["unresolved_intent"]
+
+[[scenario]]
+id = "legal_threat_report_fr"
+message = "Mon avocat va vous contacter"
+locale = "fr"
+account_linked = true
+mandatory_escalation = true
+risk_subject = "legal_threat"
+risk_form = "report"
+tags = ["risk_boundary"]
+expected_intents = []
+expected_risks = ["legal_threat"]
+expected_sources = []
+expected_claims = []
+expected_route = "human_escalation"
+expected_reasons = ["legal_threat"]
+
+[[scenario]]
+id = "legal_threat_enquiry_fr"
+message = "Quelle est votre politique en cas de litige ?"
+locale = "fr"
+account_linked = true
+mandatory_escalation = false
+risk_subject = "legal_threat"
+risk_form = "enquiry"
+tags = ["risk_boundary"]
+expected_intents = []
+expected_risks = []
+expected_sources = []
+expected_claims = []
+expected_route = "clarification"
+expected_reasons = ["unresolved_intent"]
+
+# Intent and evidence cases.
+
+[[scenario]]
+id = "unresolved_intent"
+message = "Can you help me choose a birthday gift?"
+locale = "en"
+account_linked = true
+mandatory_escalation = false
+tags = ["unresolved"]
+expected_intents = []
+expected_risks = []
+expected_sources = []
+expected_claims = []
+expected_route = "clarification"
+expected_reasons = ["unresolved_intent"]
+
+[[scenario]]
+id = "multiple_intents"
+message = "Where is my order, and can I return it once it arrives?"
+locale = "en"
+account_linked = true
+order_number = "4471"
+mandatory_escalation = false
+tags = ["multiple"]
+expected_intents = ["order_status", "return_policy"]
+expected_risks = []
+expected_sources = []
+expected_claims = []
+expected_route = "clarification"
+expected_reasons = ["multiple_intents"]
+
+[[scenario]]
+id = "return_policy_fully_covered"
+message = "How long do I have to return a jacket?"
+locale = "en"
+account_linked = true
+mandatory_escalation = false
+tags = ["policy_full"]
+expected_intents = ["return_policy"]
+expected_risks = []
+expected_sources = ["history", "knowledge_base"]
+expected_claims = ["return_window"]
+expected_route = "direct_response"
+expected_reasons = []
+
+[[scenario]]
+id = "shipping_policy_fully_covered"
+message = "How long does delivery take?"
+locale = "en"
+account_linked = true
+mandatory_escalation = false
+tags = ["policy_full"]
+expected_intents = ["shipping_policy"]
+expected_risks = []
+expected_sources = ["history", "knowledge_base"]
+expected_claims = ["standard_delivery_time"]
+expected_route = "direct_response"
+expected_reasons = []
+
+[[scenario]]
+id = "return_policy_partly_covered"
+message = "How long do I have to return a jacket, and who pays return shipping?"
+locale = "en"
+account_linked = true
+mandatory_escalation = false
+tags = ["policy_partial"]
+expected_intents = ["return_policy"]
+expected_risks = []
+expected_sources = ["history", "knowledge_base"]
+expected_claims = ["return_shipping_cost", "return_window"]
+expected_route = "internal_review"
+expected_reasons = ["evidence_does_not_cover_the_question"]
+
+[[scenario]]
+id = "shipping_destination_not_stated"
+message = "Do you ship to Belgium?"
+locale = "en"
+account_linked = true
+mandatory_escalation = false
+tags = ["policy_unsupported"]
+expected_intents = ["shipping_policy"]
+expected_risks = []
+expected_sources = ["history", "knowledge_base"]
+expected_claims = ["shipping_destinations"]
+expected_route = "human_escalation"
+expected_reasons = ["no_supporting_evidence"]
+
+[[scenario]]
+id = "french_delivery_not_covered"
+message = "Quel est le delai de livraison ?"
+locale = "fr"
+account_linked = true
+mandatory_escalation = false
+tags = ["french_delivery"]
+expected_intents = ["shipping_policy"]
+expected_risks = []
+expected_sources = ["history", "knowledge_base"]
+expected_claims = ["standard_delivery_time"]
+expected_route = "human_escalation"
+expected_reasons = ["evidence_does_not_cover_the_question"]
+
+[[scenario]]
+id = "order_number_missing"
+message = "Where is my order?"
+locale = "en"
+account_linked = true
+mandatory_escalation = false
+tags = ["missing_order"]
+expected_intents = ["order_status"]
+expected_risks = []
+expected_sources = []
+expected_claims = []
+expected_route = "clarification"
+expected_reasons = ["missing_order_id"]
+
+[[scenario]]
+id = "commerce_account_not_linked"
+message = "Where is my order?"
+locale = "en"
+account_linked = false
+order_number = "4471"
+mandatory_escalation = false
+tags = ["unlinked_account"]
+expected_intents = ["order_status"]
+expected_risks = []
+expected_sources = []
+expected_claims = []
+expected_route = "human_escalation"
+expected_reasons = ["customer_not_linked"]
+
+# Commerce paths. Demo customer 1 owns 4471; customer 2 owns 5510.
+
+[[scenario]]
+id = "order_found"
+message = "Where is my order?"
+locale = "en"
+account_linked = true
+order_number = "4471"
+mandatory_escalation = false
+tags = ["commerce_found"]
+expected_intents = ["order_status"]
+expected_risks = []
+expected_sources = ["commerce", "history"]
+expected_claims = ["order_state"]
+expected_route = "internal_review"
+expected_reasons = ["nothing_approved_to_say"]
+
+[[scenario]]
+id = "order_not_found"
+message = "Where is my order?"
+locale = "en"
+account_linked = true
+order_number = "9999"
+mandatory_escalation = false
+tags = ["commerce_not_found"]
+expected_intents = ["order_status"]
+expected_risks = []
+expected_sources = ["commerce", "history"]
+expected_claims = ["order_state"]
+expected_route = "clarification"
+expected_reasons = ["order_not_found"]
+
+[[scenario]]
+id = "another_customers_order"
+message = "Where is my order?"
+locale = "en"
+account_linked = true
+order_number = "5510"
+mandatory_escalation = false
+tags = ["commerce_other_customer"]
+expected_intents = ["order_status"]
+expected_risks = []
+expected_sources = ["commerce", "history"]
+expected_claims = ["order_state"]
+expected_route = "clarification"
+expected_reasons = ["order_not_found"]
+
+[[scenario]]
+id = "order_evidence_too_old_to_send"
+message = "Where is my order?"
+locale = "en"
+account_linked = true
+order_number = "4471"
+evidence_age_minutes = 120
+mandatory_escalation = false
+tags = ["commerce_stale"]
+expected_intents = ["order_status"]
+expected_risks = []
+expected_sources = ["commerce", "history"]
+expected_claims = ["order_state"]
+expected_route = "internal_review"
+expected_reasons = ["evidence_stale"]
+
+[[scenario]]
+id = "product_found"
+message = "Is product 12 still available?"
+locale = "en"
+account_linked = true
+product_reference = "12"
+mandatory_escalation = false
+tags = ["commerce_found"]
+expected_intents = ["product_availability"]
+expected_risks = []
+expected_sources = ["commerce", "history"]
+expected_claims = ["stock_availability"]
+expected_route = "internal_review"
+expected_reasons = ["nothing_approved_to_say"]
+
+[[scenario]]
+id = "refund_found"
+message = "Where is my refund?"
+locale = "en"
+account_linked = true
+order_number = "4468"
+mandatory_escalation = false
+tags = ["commerce_found"]
+expected_intents = ["refund_status"]
+expected_risks = []
+expected_sources = ["commerce", "history"]
+expected_claims = ["refund_state"]
+expected_route = "internal_review"
+expected_reasons = ["nothing_approved_to_say"]

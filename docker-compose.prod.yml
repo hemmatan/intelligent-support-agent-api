@@ -1,0 +1,64 @@
+x-app-image: &app-image
+  build:
+    context: .
+    target: runtime
+  image: dornashop-support:production
+
+x-app-environment: &app-environment
+  DORNASHOP_ENVIRONMENT: production
+  DORNASHOP_DEBUG: "false"
+  DORNASHOP_SECRET_KEY: "${DORNASHOP_SECRET_KEY:?DORNASHOP_SECRET_KEY must be set}"
+  DORNASHOP_CORS_ORIGINS: "${DORNASHOP_CORS_ORIGINS:?DORNASHOP_CORS_ORIGINS must be set}"
+  DORNASHOP_DB_ENGINE: postgresql
+  DORNASHOP_DB_HOST: database
+  DORNASHOP_DB_PORT: "5432"
+  DORNASHOP_DB_NAME: "${DORNASHOP_DB_NAME:-dornashop}"
+  DORNASHOP_DB_USER: "${DORNASHOP_DB_USER:-dornashop}"
+  DORNASHOP_DB_PASSWORD: "${DORNASHOP_DB_PASSWORD:?DORNASHOP_DB_PASSWORD must be set}"
+  DORNASHOP_COMMERCE_DEMO_RECORDS: "false"
+  DORNASHOP_HUGGINGFACE_API_TOKEN:
+
+services:
+  database:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: "${DORNASHOP_DB_NAME:-dornashop}"
+      POSTGRES_USER: "${DORNASHOP_DB_USER:-dornashop}"
+      POSTGRES_PASSWORD: "${DORNASHOP_DB_PASSWORD:?DORNASHOP_DB_PASSWORD must be set}"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready --username=$${POSTGRES_USER} --dbname=$${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      start_period: 5s
+      retries: 10
+    restart: unless-stopped
+
+  migrate:
+    <<: *app-image
+    command: ["alembic", "upgrade", "head"]
+    environment: *app-environment
+    depends_on:
+      database:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    restart: "no"
+
+  web:
+    <<: *app-image
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment: *app-environment
+    depends_on:
+      database:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "${DORNASHOP_HTTP_PORT:-8000}:8000"
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+volumes:
+  postgres_data:

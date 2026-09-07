@@ -1,0 +1,20 @@
+id = "shipping.times"
+locale = "en"
+version = 1
+approved = true
+kind = "shipping_policy"
+
+# Opens on the question it cannot answer. Retrieval will match every word of
+# "where is my order" against this entry, which is the point: only the order
+# system knows where a particular order is.
+prose_template = """
+Where is my order? Standard delivery takes {standard_delivery_days_min} to
+{standard_delivery_days_max} business days from dispatch. Express delivery
+arrives within {express_delivery_days} business day. You can track your order
+from your account once it has shipped.
+"""
+
+[claims]
+standard_delivery_days_min = 2
+standard_delivery_days_max = 3
+express_delivery_days = 1

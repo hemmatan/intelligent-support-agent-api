@@ -1,0 +1,6 @@
+key = "check_the_reference"
+locale = "fr"
+version = 1
+approved = true
+
+sentence = "Nous n'avons rien trouvé sous cette référence sur votre compte. Merci de la vérifier et de nous la transmettre à nouveau."

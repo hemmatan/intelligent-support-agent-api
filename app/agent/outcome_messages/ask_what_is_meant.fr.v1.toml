@@ -1,0 +1,6 @@
+key = "ask_what_is_meant"
+locale = "fr"
+version = 1
+approved = true
+
+sentence = "Nous n'avons pas compris votre demande. Merci de nous en dire un peu plus."

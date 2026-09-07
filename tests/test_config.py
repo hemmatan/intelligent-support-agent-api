@@ -1,6 +1,7 @@
 """Configuration is loaded and validated through the real environment path."""
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy import make_url
 
 from app.core.config import Environment, Settings
@@ -125,6 +126,62 @@ def test_production_accepts_explicit_secure_values(
         ENVIRONMENT="production",
         SECRET_KEY=PRODUCTION_SECRET,
         CORS_ORIGINS="https://shop.example.com",
+        COMMERCE_DEMO_RECORDS="false",
     )
     assert settings.ENVIRONMENT is Environment.PRODUCTION
     assert settings.DEBUG is False
+    assert settings.COMMERCE_DEMO_RECORDS is False
+
+
+def test_invented_records_are_refused_in_production(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The default is on, so a production deployment has to turn it off.
+
+    Which is the right way round. Left to be opted into, somebody forgets and
+    the demonstration quietly stops working; left on, somebody forgets and a
+    person who placed a real order is told an invented delivery state. The
+    process refuses to start instead.
+    """
+    with pytest.raises(ValidationError, match="must be off in production"):
+        build(
+            monkeypatch,
+            ENVIRONMENT="production",
+            SECRET_KEY=PRODUCTION_SECRET,
+            CORS_ORIGINS="https://shop.example.com",
+        )
+
+
+def test_development_gets_the_invented_records_without_asking(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert build(monkeypatch).COMMERCE_DEMO_RECORDS is True
+
+
+def test_a_reading_cannot_stop_being_legible_before_it_goes_stale(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each is positive alone; the pair is what has to describe a scale.
+
+    Unchecked here it surfaced with somebody waiting, as a five hundred out of
+    the middle of a rating, where every other bad value in this file stops the
+    process before anybody is served.
+    """
+    with pytest.raises(ValidationError, match="stop being readable"):
+        build(
+            monkeypatch,
+            COMMERCE_FRESHNESS_TTL_SECONDS="7200",
+            COMMERCE_READABLE_FOR_SECONDS="60",
+        )
+
+
+def test_windows_of_the_same_length_are_allowed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Nothing between the rungs is a narrow scale, not a broken one."""
+    settings = build(
+        monkeypatch,
+        COMMERCE_FRESHNESS_TTL_SECONDS="900",
+        COMMERCE_READABLE_FOR_SECONDS="900",
+    )
+    assert settings.COMMERCE_READABLE_FOR_SECONDS == 900.0
