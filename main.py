@@ -104,8 +104,9 @@ four things comes back, all of them `200`:
 | `internal_review` | Nothing is wrong with the request; somebody here finishes it |
 
 Every reply carries a `case` — the record the decision was written into before
-the reply was sent — and a `reliability` rating naming each dimension on an
-ordinal scale rather than as a percentage.
+the reply was sent. When evidence was assessed, the reply also carries a
+`reliability` rating naming each dimension on an ordinal scale rather than as
+a percentage.
 
 No sentence a customer receives is written by a model. Figures come from
 structured claims and the sentences around them are approved, versioned and

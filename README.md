@@ -23,13 +23,13 @@ The agent's design and the reasoning behind it are in
 - **JWT Authentication**: Short-lived access tokens and rotating, revocable refresh tokens
 - **SQLAlchemy with Async**: Fully async database operations using SQLAlchemy 2.0+
 - **Alembic Migrations**: Database schema migrations with Alembic
-- **Role Model and Authorization Foundation**: Database-backed `customer`, `support_agent` and `admin` roles, with staff enforcement available but not yet required by any endpoint
+- **Role Model and Staff Authorization**: Database-backed `customer`, `support_agent` and `admin` roles, with the case queue restricted to staff
 - **Versioned API**: Public application routes are grouped under `/api/v1`
-- **Docker Development Workflow**: Containerized local setup; see the Docker section for current limitations
+- **Docker Workflows**: Containerized development and production topologies
 - **Developer-friendly**: Auto-reload, debugging, and development tools
 - **Validated Configuration**: Namespaced settings with production secret and CORS safeguards
 - **Grounded Answers**: Every customer-facing sentence is approved, versioned and content-hashed; figures come from structured claims, never from prose
-- **Four Honest Outcomes**: Answer, clarify, escalate or hold for review, each with a reason code, a rendered message and a recorded case
+- **Four Honest Outcomes**: Answer, clarify, escalate or hold for review, with a machine-readable reason for every non-answer, an approved sentence for whoever reads it, and a recorded case
 
 ## Project Structure
 
@@ -46,7 +46,7 @@ The agent's design and the reasoning behind it are in
 │   └── utils/               # Utility functions
 ├── docker-compose.yml       # Baseline local/demo Compose configuration
 ├── docker-compose.dev.yml   # Local development configuration with reload
-├── Dockerfile               # Development-oriented application image
+├── Dockerfile               # Multi-stage, non-root runtime image
 ├── alembic.ini              # Alembic configuration
 ├── .env.example             # Documented configuration template
 ├── docs/architecture.md     # Support-agent design decisions
@@ -65,9 +65,6 @@ The agent's design and the reasoning behind it are in
 ## Installation
 
 ### Using Docker for local development
-
-> **Development only:** The current image and Compose configurations are for
-> local development and demonstrations. They are not production-ready yet.
 
 1. Clone the repository:
    ```bash
@@ -454,16 +451,12 @@ environment responsibilities.
 
 Deliberate, and recorded rather than hidden:
 
-- **Staff authorization is defined but unused.** The `support_agent` and `admin`
-  roles and the staff dependency exist; no endpoint requires them yet. They are
-  in place for the support-agent work that follows.
 - **Refresh tokens are never pruned.** Revoked and expired rows accumulate. A
   periodic cleanup is needed before this runs for any length of time.
 - **API-token authentication writes on every request.** Each call updates
   `last_used_at`, so a read costs a write.
 - **Logout requires a live access token.** A client whose access token has
   expired cannot revoke its still-valid refresh token without refreshing first.
-- The Docker limitations listed above.
 
 ## Acknowledgements
 
