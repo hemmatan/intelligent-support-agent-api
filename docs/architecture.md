@@ -258,14 +258,19 @@ out as a good answer.
 We do not publish a percentage. The available evidence does not support
 calibrated probabilities, and `0.83` would be invented precision.
 
-The weakest level maps directly to a route:
+The weakest level maps directly to an **evidence route**:
 
-| Weakest applicable factor | Route |
+| Weakest applicable factor | Evidence route |
 |---|---|
 | `READY` | Direct response |
 | `ACCEPTABLE` | Direct response |
 | `REVIEW_ONLY` | Internal review |
 | `UNUSABLE` | Human escalation |
+
+That route says how far the evidence can carry. A direct evidence route still
+needs approved wording for the facts being answered. If none exists,
+`Plan.held_back` moves it to internal review; it cannot turn a review or
+escalation into an answer.
 
 It is an automation-readiness judgement, not a correctness estimate. The API
 publishes it as an ordered category with its scale attached, so that nothing
@@ -279,17 +284,17 @@ reads as a probability:
 `UNUSABLE` means automation must not answer, and a human ticket is created
 instead.
 
-`READY` and `ACCEPTABLE` share a route today. They stay distinct because the
-difference is worth measuring — how often answers go out on pristine evidence
-versus evidence that is imperfect but safe — and because tightening the bar
-later should be a routing change, not a rescoring one.
+`READY` and `ACCEPTABLE` share an evidence route today. They stay distinct
+because the difference is worth measuring — how often evidence is pristine
+versus imperfect but safe — and because tightening the bar later should be a
+routing change, not a rescoring one.
 
 The levels and the per-factor rubric for what each one means are defined in
-`app/agent/reliability.py`, and the reason codes in `app/agent/reasons.py` —
-separately, because a code explains why a request went somewhere and most of
-them have nothing to do with how reliable an answer was. The material-claim
-enumeration belongs beside them when it is written, rather than being spelled
-out here where a second copy would drift.
+`app/agent/reliability.py`, the reason codes in `app/agent/reasons.py`, and the
+material claims and their coverage rules in `app/agent/facts.py`. They remain
+separate because a code explains why a request went somewhere and most codes
+have nothing to do with how reliable an answer was. They remain in code rather
+than being spelled out here, where a second copy would drift.
 
 ## Gates run before any scoring
 
@@ -385,8 +390,9 @@ prose.
 
 ### What the model does
 
-A Hugging Face embedding model provides multilingual semantic retrieval over
-the knowledge base, alongside lexical BM25 search.
+When `DORNASHOP_HUGGINGFACE_API_TOKEN` is configured, a Hugging Face embedding
+model provides multilingual semantic retrieval over the knowledge base,
+alongside lexical BM25 search. Without the token, retrieval uses BM25 alone.
 
 The two are not interchangeable, and the reliability level treats them
 asymmetrically. BM25 returning nothing is a fact: the question and the
@@ -499,17 +505,21 @@ here, and the honest position is that it was not built rather than that it is
 implied by a diagram.
 
 
-Each request persists its intent, risk flags, source plan, evidence
-references, reliability factors and route, whether or not a customer ever sees
-a response.
+Each request persists its source plan, route, reasons and the words sent, plus
+its intent when one was established. Evidence references and reliability
+factors are added only after evidence was assessed. Empty fields on an earlier
+triage outcome say that the request never reached that stage; filling them
+would invent an analysis that did not happen.
 
 A reason code accompanies every outcome except a direct answer. That exception
 is deliberate. A reason names what stopped a request from being answered
 normally, and an answer given normally was stopped by nothing; a code invented
 to fill the column would be counted alongside the real ones and would make
 "how often do we escalate for missing coverage" a question about how many
-requests succeeded. What explains a delivery is the factor record, which is
-kept for every outcome and is where the case for sending it actually lives.
+requests succeeded. What explains a direct delivery is the factor record,
+which is present for every answer and is where the case for sending it actually
+lives. An outcome reached before evidence assessment has no invented rating;
+its route and reason explain why it stopped.
 
 This happens before delivery. A response that reached a customer without a
 record of why is the one case that cannot be investigated afterwards, and
@@ -546,9 +556,10 @@ is exercised.
 So the honest statement is narrower than the original: **this project has one
 external boundary, not two.** Commerce keeps the same protocol, the same
 failure taxonomy and the same substitutable tests, which is what an HTTP
-client would need in order to be dropped in — the seam is built and nothing
-is behind it. That is a smaller claim than the one this document made before,
-and it is the one the code supports.
+client would need in order to be dropped in. The external seam is built, but
+only the local `DemoStorefront` sits behind it today; no HTTP client is
+connected. That is a smaller claim than the one this document made before, and
+it is the one the code supports.
 
 
 ### The model classification that was built and then removed
