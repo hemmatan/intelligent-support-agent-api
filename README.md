@@ -396,6 +396,11 @@ the database health check, runs migrations as a one-shot service, and starts
 the API only after migration succeeds. The API container uses the image's
 health check and has no source-code bind mount.
 
+CI builds the production runtime image and starts this complete Compose stack
+on an ephemeral host port. It checks the runtime user and dependency boundary,
+the database and API health checks, the migration exit status, and the public
+`/health` endpoint before removing the stack and its test volume.
+
 Set `DORNASHOP_SECRET_KEY`, `DORNASHOP_DB_PASSWORD` and
 `DORNASHOP_CORS_ORIGINS` in the deployment environment before starting it:
 
