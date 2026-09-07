@@ -162,3 +162,20 @@ class DemoStorefront:
                 quantity=held.quantity,
             )
         )
+
+
+def references_for(customer: int) -> dict[str, tuple[str, ...]]:
+    """What this customer can ask about, read off the rows themselves.
+
+    So that a demonstration is written from the data rather than beside it.
+    The readme quoted an order reference in a format nothing here has ever
+    used, which is the whole failure mode of documenting an example by hand:
+    it was wrong the day it was typed and nothing was in a position to say so.
+    """
+    return {
+        "orders": tuple(sorted(held for (whose, held) in _ORDERS if whose == customer)),
+        "refunds": tuple(
+            sorted(held for (whose, held) in _REFUNDS if whose == customer)
+        ),
+        "products": tuple(sorted(_PRODUCTS)),
+    }

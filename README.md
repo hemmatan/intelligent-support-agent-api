@@ -122,7 +122,17 @@ The agent's design and the reasoning behind it are in
    alembic upgrade head
    ```
 
-5. Start the application:
+5. Create the demo customer, so the commerce questions have records to reach:
+   ```bash
+   python -m app.seed
+   ```
+
+   It prints an account and the references that account can ask about. The
+   shop's records are invented — every row says so, all the way into the
+   stored case — and this refuses to run in production, or anywhere
+   `DORNASHOP_COMMERCE_DEMO_RECORDS` is off.
+
+6. Start the application:
    ```bash
    uvicorn main:app --reload
    ```
@@ -162,10 +172,15 @@ Authorization: Bearer <access token>
 
 {
   "message": "How long do I have to return a jacket?",
-  "order_id": "ORD-4471",          // optional
-  "product_reference": "SKU-9"     // optional
+  "order_id": "4471",              // optional
+  "product_reference": "12"        // optional
 }
 ```
+
+Those two are references the seeded demo customer can actually reach; `python
+-m app.seed` prints the current list. A question about an order or a refund
+needs `order_id`, and one about stock needs `product_reference` — without
+them the reply asks for the missing one rather than guessing.
 
 Four things can come back, and **all of them are `200`**. Being asked a
 question, being passed to a person and being held for checking are decisions
