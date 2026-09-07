@@ -613,8 +613,17 @@ emptiness is a result rather than an omission.
 
 ## Scope
 
-Six vertical slices: product information, return policy, order status,
-payment dispute, ambiguous request, and a medium-confidence review path. A
-small bilingual corpus, not a full parallel translation.
+Customer-visible paths work end to end for return policy in both languages,
+and for shipping policy in English. Asking about delivery in French reaches a
+person: nothing approved covers it, and the coverage check is what stops the
+returns entry from answering in its place. Ambiguous-request clarifications
+and mandatory escalations also work end to end. A medium-confidence retrieval
+result is correctly held for internal review.
 
-Six things that work end to end are worth more than twenty that half-work.
+The commerce path implements ownership-safe lookup and reliability assessment
+for order status, refund status and product availability. A commerce request
+that finds its evidence stops at internal review: the response library has no
+approved customer wording for those structured records.
+
+The knowledge base is a small bilingual corpus, not a full parallel
+translation.
