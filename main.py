@@ -57,10 +57,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.support = SupportAgent(
         sources=Sources(
             knowledge_base=index,
-            # Every row it returns says it is invented. There is no
-            # DornaShop to ask, and a reply resting on this is marked as
-            # resting on it all the way to the case record.
-            commerce=DemoStorefront(),
+            # Every row it returns says it is invented, all the way to the
+            # stored case. Production refuses to start with this on, so
+            # nothing here can quietly become a real shop's answer.
+            commerce=DemoStorefront() if settings.COMMERCE_DEMO_RECORDS else None,
             ttl=timedelta(seconds=settings.COMMERCE_FRESHNESS_TTL_SECONDS),
             readable_for=timedelta(seconds=settings.COMMERCE_READABLE_FOR_SECONDS),
         ),
