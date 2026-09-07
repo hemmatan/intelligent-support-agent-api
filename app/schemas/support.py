@@ -165,6 +165,10 @@ class Clarification(BaseModel):
     reason: ClarificationReason
     message: Said
     wording: Said
+    # Empty where the message was what could not be placed. Asked for an order
+    # number, the service knew exactly what was being asked and stopped for
+    # want of a value, and the case a colleague opens should say so.
+    intent: Intent | None = None
 
 
 class Escalation(BaseModel):
@@ -245,7 +249,13 @@ def replied(
     """
     match outcome:
         case Escalate():
-            return _escalated(sorted(outcome.reasons, key=str), messages, locale, case)
+            return _escalated(
+                sorted(outcome.reasons, key=str),
+                messages,
+                locale,
+                case,
+                intent=outcome.intent,
+            )
         case Clarify():
             said = messages.tell([outcome.reason], locale, Route.CLARIFICATION)
             return Clarification(
@@ -253,6 +263,7 @@ def replied(
                 reason=outcome.reason,
                 message=said.sentence,
                 wording=said.cited,
+                intent=outcome.intent,
             )
         case TriageReview() | PlanReview():
             said = messages.tell([outcome.reason], locale, Route.INTERNAL_REVIEW)
@@ -261,9 +272,16 @@ def replied(
                 reasons=[outcome.reason],
                 message=said.sentence,
                 wording=said.cited,
+                intent=outcome.intent,
             )
         case Handover():
-            return _escalated(sorted(outcome.reasons, key=str), messages, locale, case)
+            return _escalated(
+                sorted(outcome.reasons, key=str),
+                messages,
+                locale,
+                case,
+                intent=outcome.intent,
+            )
         case Plan():
             return _from_plan(outcome, messages, locale, case)
     raise TypeError(f"{outcome!r} is not an outcome")

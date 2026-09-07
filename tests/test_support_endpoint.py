@@ -746,3 +746,171 @@ async def test_a_reply_resting_on_invented_data_says_so_to_the_customer(
     assert body["intent"] == "order_status"
     assert cited["observed_at"] == "2026-09-07T12:00:00Z"
     assert body["reliability"]["factors"]["freshness"] == "ready"
+
+
+@pytest.mark.asyncio
+async def test_a_clarification_records_the_question_it_understood(
+    async_client: AsyncClient,
+    wired: None,
+    signed_in: Callable[..., object],
+    session: AsyncSession,
+) -> None:
+    """Asked for an order number, and the case knew all along what was meant.
+
+    Read out of the stored row, not the reply. The two are written from one
+    object, so checking only the reply leaves the half a colleague actually
+    opens unexamined — which is how this column stayed empty through the last
+    fix aimed at exactly it.
+    """
+    headers = await signed_in()  # type: ignore[misc]
+    response = await async_client.post(
+        MESSAGES, json={"message": "Where is my order?"}, headers=headers
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["route"] == "clarification"
+    assert body["reason"] == "missing_order_id"
+    assert body["intent"] == "order_status"
+
+    stored = (
+        await session.execute(
+            select(SupportCase).where(SupportCase.reference == body["case"])
+        )
+    ).scalar_one()
+    assert stored.intent == "order_status"
+
+
+@pytest.mark.asyncio
+async def test_a_reported_danger_records_no_question_at_all(
+    async_client: AsyncClient,
+    wired: None,
+    signed_in: Callable[..., object],
+    session: AsyncSession,
+) -> None:
+    """And that emptiness is the correct entry rather than a missing one."""
+    headers = await signed_in()  # type: ignore[misc]
+    response = await async_client.post(
+        MESSAGES,
+        json={"message": "Someone used my card without my permission"},
+        headers=headers,
+    )
+    body = response.json()
+    assert body["route"] == "human_escalation"
+    assert body["intent"] is None
+
+    stored = (
+        await session.execute(
+            select(SupportCase).where(SupportCase.reference == body["case"])
+        )
+    ).scalar_one()
+    assert stored.intent is None
+    assert stored.reasons == ["suspected_fraud"]
+
+
+@pytest.mark.asyncio
+async def test_an_unlinked_account_records_the_question_it_understood(
+    async_client: AsyncClient,
+    wired: None,
+    signed_in: Callable[..., object],
+    session: AsyncSession,
+) -> None:
+    """The escalation that does carry a reading, as against the one that cannot.
+
+    A reported danger leaves before anything asks what was wanted, so an empty
+    column there is correct — and indistinguishable from the column never
+    being filled in. Only a request that got as far as being understood and
+    then stopped on our own missing data can tell those apart.
+    """
+    headers = await signed_in(linked=False)  # type: ignore[misc]
+    response = await async_client.post(
+        MESSAGES,
+        json={"message": "Where is my order?", "order_id": "4471"},
+        headers=headers,
+    )
+    body = response.json()
+    assert body["route"] == "human_escalation"
+    assert body["reasons"] == ["customer_not_linked"]
+    assert body["intent"] == "order_status"
+
+    stored = (
+        await session.execute(
+            select(SupportCase).where(SupportCase.reference == body["case"])
+        )
+    ).scalar_one()
+    assert stored.intent == "order_status"
+
+
+@pytest.mark.asyncio
+async def test_a_reference_that_matches_nothing_still_records_the_question(
+    async_client: AsyncClient,
+    signed_in: Callable[..., object],
+    session: AsyncSession,
+) -> None:
+    """The reading was taken; the row was not there. Both are worth recording.
+
+    This exit picks its own reason code *out of* the established reading and
+    then used to drop the reading itself, which is as close to losing a value
+    while holding it as this code gets.
+    """
+    shop = SupportAgent(
+        sources=Sources(
+            knowledge_base=PolicyIndex(load_corpus()),
+            commerce=DemoStorefront(now=lambda: SHOP_NOW),
+            now=lambda: SHOP_NOW,
+        ),
+        templates=load_templates(),
+        messages=load_messages(),
+    )
+    app.dependency_overrides[support_agent] = lambda: shop
+    try:
+        headers = await signed_in(commerce_id=1)  # type: ignore[misc]
+        response = await async_client.post(
+            MESSAGES,
+            json={"message": "Where is my order?", "order_id": "9999"},
+            headers=headers,
+        )
+    finally:
+        app.dependency_overrides.pop(support_agent, None)
+
+    body = response.json()
+    assert body["route"] == "clarification"
+    assert body["reason"] == "order_not_found"
+    assert body["intent"] == "order_status"
+
+    stored = (
+        await session.execute(
+            select(SupportCase).where(SupportCase.reference == body["case"])
+        )
+    ).scalar_one()
+    assert stored.intent == "order_status"
+
+
+@pytest.mark.asyncio
+async def test_a_source_nobody_connected_still_records_the_question(
+    async_client: AsyncClient,
+    wired: None,
+    signed_in: Callable[..., object],
+    session: AsyncSession,
+) -> None:
+    """Held for us because commerce is not wired, and the reading survives.
+
+    The default fixture connects no shop, so this is the path a request takes
+    when the deployment has switched the invented rows off.
+    """
+    headers = await signed_in(commerce_id=1)  # type: ignore[misc]
+    response = await async_client.post(
+        MESSAGES,
+        json={"message": "Where is my order?", "order_id": "4471"},
+        headers=headers,
+    )
+    body = response.json()
+    assert body["route"] == "internal_review"
+    assert body["reasons"] == ["source_unavailable"]
+    assert body["intent"] == "order_status"
+
+    stored = (
+        await session.execute(
+            select(SupportCase).where(SupportCase.reference == body["case"])
+        )
+    ).scalar_one()
+    assert stored.intent == "order_status"

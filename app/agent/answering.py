@@ -84,6 +84,10 @@ class Handover:
 
     reasons: frozenset[EscalationReason]
 
+    # Every gate here is reached with the message already understood: this is
+    # what a placed request ran into, not a reason it was never placed.
+    intent: Intent | None = None
+
     def __post_init__(self) -> None:
         if not self.reasons:
             raise UnexplainedEscalationError("an escalation must say why")
@@ -333,7 +337,10 @@ async def _from_knowledge_base(
 
     hits = await sources.search(proceed.enquiry.message, proceed.enquiry.locale)
     if not hits:
-        return Handover(reasons=frozenset({BlockedReason.NO_SUPPORTING_EVIDENCE}))
+        return Handover(
+            reasons=frozenset({BlockedReason.NO_SUPPORTING_EVIDENCE}),
+            intent=proceed.intent,
+        )
 
     best = hits[0]
     citations = (
@@ -408,9 +415,9 @@ async def _from_commerce(proceed: Proceed, *, sources: Sources) -> Outcome:
     try:
         record = await sources.look_up(proceed.intent, proceed.enquiry)
     except CommerceUnavailableError:
-        return Review(reason=ReviewReason.SOURCE_UNAVAILABLE)
+        return Review(reason=ReviewReason.SOURCE_UNAVAILABLE, intent=proceed.intent)
     if record is None:
-        return Clarify(reason=_NOT_FOUND[proceed.intent])
+        return Clarify(reason=_NOT_FOUND[proceed.intent], intent=proceed.intent)
 
     citations = (
         Citation(
@@ -466,7 +473,7 @@ async def plan_for(
 
     missing = profile.required_sources - sources.available
     if missing:
-        return Review(reason=ReviewReason.SOURCE_UNAVAILABLE)
+        return Review(reason=ReviewReason.SOURCE_UNAVAILABLE, intent=proceed.intent)
 
     if Source.COMMERCE in profile.required_sources:
         return await _from_commerce(proceed, sources=sources)

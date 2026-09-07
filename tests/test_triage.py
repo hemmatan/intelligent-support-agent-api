@@ -159,7 +159,9 @@ async def test_a_missing_order_number_is_asked_for() -> None:
     outcome = await triage(
         asked("Where is my order?", LINKED),
     )
-    assert outcome == Clarify(reason=ClarificationReason.MISSING_ORDER_ID)
+    assert outcome == Clarify(
+        reason=ClarificationReason.MISSING_ORDER_ID, intent=Intent.ORDER_STATUS
+    )
 
 
 @pytest.mark.asyncio
@@ -168,7 +170,10 @@ async def test_an_unlinked_customer_goes_to_a_person() -> None:
     outcome = await triage(
         asked("Where is my order?", frozenset({Input.ORDER_ID})),
     )
-    assert outcome == Escalate(reasons=frozenset({BlockedReason.CUSTOMER_NOT_LINKED}))
+    assert outcome == Escalate(
+        reasons=frozenset({BlockedReason.CUSTOMER_NOT_LINKED}),
+        intent=Intent.ORDER_STATUS,
+    )
 
 
 @pytest.mark.asyncio
@@ -177,7 +182,10 @@ async def test_the_more_serious_absence_decides() -> None:
     outcome = await triage(
         asked("Where is my order?", frozenset()),
     )
-    assert outcome == Escalate(reasons=frozenset({BlockedReason.CUSTOMER_NOT_LINKED}))
+    assert outcome == Escalate(
+        reasons=frozenset({BlockedReason.CUSTOMER_NOT_LINKED}),
+        intent=Intent.ORDER_STATUS,
+    )
 
 
 @pytest.mark.asyncio
@@ -195,7 +203,10 @@ async def test_asking_after_an_unnamed_product_asks_which_one() -> None:
     outcome = await triage(
         asked("Is it still available?"),
     )
-    assert outcome == Clarify(reason=ClarificationReason.MISSING_PRODUCT_REFERENCE)
+    assert outcome == Clarify(
+        reason=ClarificationReason.MISSING_PRODUCT_REFERENCE,
+        intent=Intent.PRODUCT_AVAILABILITY,
+    )
 
 
 @pytest.mark.asyncio
@@ -335,3 +346,119 @@ async def test_danger_the_rules_saw_survives_the_model_being_down() -> None:
         classifier=Down(),
     )
     assert outcome == Escalate(reasons=frozenset({RiskReason.PAYMENT_DISPUTE}))
+
+
+@pytest.mark.asyncio
+async def test_a_request_stopped_for_a_value_still_says_what_it_was() -> None:
+    """The reading survived to the planner and no further.
+
+    Asked where an order is without being given a number, the service has
+    already settled what the question means; it stops for a value it does not
+    hold. Discarding the reading there stored a case with an empty column,
+    which is the one a colleague opens.
+    """
+    stopped = await triage(
+        Enquiry(message="Where is my order?", customer=1), classifier=None
+    )
+    assert isinstance(stopped, Clarify)
+    assert stopped.intent is Intent.ORDER_STATUS
+
+
+@pytest.mark.asyncio
+async def test_danger_carries_no_reading_because_none_was_taken() -> None:
+    """Empty here is a finding rather than the same bug one branch along.
+
+    Risk is read off the sentence and leaves before anything asks what was
+    wanted, so there is nothing established to record. Filing it under a
+    question would file it under a guess.
+    """
+    reported = await triage(
+        Enquiry(message="Someone used my card without permission", customer=1),
+        classifier=None,
+    )
+    assert isinstance(reported, Escalate)
+    assert reported.intent is None
+
+
+@pytest.mark.asyncio
+async def test_a_message_nobody_could_place_names_nothing() -> None:
+    """One reading nobody found, and two nobody chose between.
+
+    Both are states in which an intent would be invented. The reason code
+    already tells those two apart, which is where that difference belongs.
+    """
+    for message in (
+        "I need help with my purchase",
+        "Where is my order, and can I return it?",
+    ):
+        asked = await triage(
+            Enquiry(message=message, customer=1, order="4471"), classifier=None
+        )
+        assert isinstance(asked, Clarify)
+        assert asked.intent is None
+
+
+def test_danger_and_a_reading_cannot_be_written_down_together() -> None:
+    """Not merely absent today — unwriteable, so a reordering is caught.
+
+    Risk returns before classification runs, so the pair cannot arise. Should
+    somebody move that, an escalation would start claiming a reading nothing
+    took, and the case would say the message had been understood.
+    """
+    with pytest.raises(UnexplainedEscalationError, match="danger alone"):
+        Escalate(
+            reasons=frozenset({RiskReason.SUSPECTED_FRAUD}),
+            intent=Intent.ORDER_STATUS,
+        )
+
+    # A blocked request is a different matter: the reading was taken, and the
+    # thing missing is ours rather than theirs.
+    Escalate(
+        reasons=frozenset({BlockedReason.CUSTOMER_NOT_LINKED}),
+        intent=Intent.ORDER_STATUS,
+    )
+
+
+def test_any_reported_danger_refuses_a_reading_not_merely_a_pure_set() -> None:
+    """The mixture is the whole case this guard exists for.
+
+    Danger alone already cannot carry one. What a reordering would actually
+    produce is danger arriving beside something established afterwards, and a
+    guard satisfied only by an unmixed set would wave exactly that through —
+    passing on every arrangement except the one it was written against.
+    """
+    with pytest.raises(UnexplainedEscalationError, match="danger alone"):
+        Escalate(
+            reasons=frozenset(
+                {RiskReason.SUSPECTED_FRAUD, BlockedReason.CUSTOMER_NOT_LINKED}
+            ),
+            intent=Intent.ORDER_STATUS,
+        )
+
+
+def test_a_question_asked_because_nothing_was_understood_names_nothing() -> None:
+    """Writeable until now, and it would have claimed the opposite of the truth."""
+    for unplaced in (
+        ClarificationReason.UNRESOLVED_INTENT,
+        ClarificationReason.MULTIPLE_INTENTS,
+    ):
+        with pytest.raises(UnexplainedEscalationError, match="no reading"):
+            Clarify(reason=unplaced, intent=Intent.ORDER_STATUS)
+        Clarify(reason=unplaced)
+
+
+def test_a_question_asked_after_understanding_has_to_say_what_it_understood() -> None:
+    """The other direction, which is how the column emptied in the first place.
+
+    Every one of these is reached with the reading already taken, so omitting
+    it is not a permitted state — it is the defect, made unwriteable.
+    """
+    for placed in (
+        ClarificationReason.MISSING_ORDER_ID,
+        ClarificationReason.MISSING_PRODUCT_REFERENCE,
+        ClarificationReason.ORDER_NOT_FOUND,
+        ClarificationReason.PRODUCT_NOT_FOUND,
+    ):
+        with pytest.raises(UnexplainedEscalationError, match="names nothing"):
+            Clarify(reason=placed)
+        Clarify(reason=placed, intent=Intent.ORDER_STATUS)

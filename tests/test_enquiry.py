@@ -89,4 +89,6 @@ async def test_a_blank_order_number_is_asked_for_rather_than_looked_up() -> None
     outcome = await triage(
         Enquiry(message="Where is my order?", customer=7, order="   ")
     )
-    assert outcome == Clarify(reason=ClarificationReason.MISSING_ORDER_ID)
+    assert outcome == Clarify(
+        reason=ClarificationReason.MISSING_ORDER_ID, intent=Intent.ORDER_STATUS
+    )

@@ -24,7 +24,12 @@ from app.agent.intent import (
     intents_in,
 )
 from app.agent.profiles import DecisionProfile, Source, profile_for
-from app.agent.reasons import ClarificationReason, EscalationReason, ReviewReason
+from app.agent.reasons import (
+    ClarificationReason,
+    EscalationReason,
+    ReviewReason,
+    RiskReason,
+)
 from app.agent.reliability import Route
 from app.agent.risk import risks_in
 
@@ -43,9 +48,28 @@ class Escalate:
 
     reasons: frozenset[EscalationReason]
 
+    # What the message was taken to be asking, where that was settled before
+    # the request stopped. Empty is a finding rather than a gap: danger is
+    # read off the sentence and returns before anything is classified, so
+    # nothing was established to record.
+    intent: Intent | None = None
+
+    # Any risk at all refuses a reading, not merely a set made up entirely of
+    # them. A mixture is precisely what moving the risk check below
+    # classification would produce, and that is the arrangement this exists to
+    # catch — so the looser test would have been blind to the only case it
+    # was written for.
+
     def __post_init__(self) -> None:
         if not self.reasons:
             raise UnexplainedEscalationError("an escalation must say why")
+        if self.intent is not None and any(
+            isinstance(reason, RiskReason) for reason in self.reasons
+        ):
+            raise UnexplainedEscalationError(
+                f"{self.intent} on an escalation raised by danger alone, which "
+                f"leaves before anything reads what was wanted"
+            )
 
 
 @dataclass(frozen=True)
@@ -59,12 +83,47 @@ class Review:
 
     reason: ReviewReason
 
+    # Held after the message was understood, in every case but one: a reading
+    # that could not be taken at all is the fault being reported.
+    intent: Intent | None = None
+
+
+# The two questions asked because the message itself could not be placed.
+# Everything else is asked after it was.
+_UNPLACED = frozenset(
+    {ClarificationReason.UNRESOLVED_INTENT, ClarificationReason.MULTIPLE_INTENTS}
+)
+
 
 @dataclass(frozen=True)
 class Clarify:
     """Something is missing that the customer can supply."""
 
     reason: ClarificationReason
+
+    # Set where the request was understood and stopped for want of a value.
+    # Left empty where the message itself was what could not be placed: one
+    # reading nobody found, and two readings nobody chose between, are both
+    # states in which naming an intent would be naming a guess.
+    intent: Intent | None = None
+
+    def __post_init__(self) -> None:
+        """Both ways of getting this wrong, since both are writeable.
+
+        Naming a reading on a question asked because none was found says the
+        message was understood. Omitting one on a question asked after it was
+        understood throws away the thing a colleague opening the case wants.
+        """
+        if self.reason in _UNPLACED and self.intent is not None:
+            raise UnexplainedEscalationError(
+                f"{self.reason} names {self.intent}, having been asked because "
+                f"no reading was arrived at"
+            )
+        if self.reason not in _UNPLACED and self.intent is None:
+            raise UnexplainedEscalationError(
+                f"{self.reason} is asked once a message is understood, and this "
+                f"one names nothing"
+            )
 
 
 @dataclass(frozen=True)
@@ -155,7 +214,7 @@ async def triage(
         )
         reason = worst.reason
         if isinstance(reason, EscalationReason):
-            return Escalate(reasons=frozenset({reason}))
-        return Clarify(reason=reason)
+            return Escalate(reasons=frozenset({reason}), intent=intent)
+        return Clarify(reason=reason, intent=intent)
 
     return Proceed(intent=intent, enquiry=enquiry)

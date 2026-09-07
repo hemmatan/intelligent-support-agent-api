@@ -122,7 +122,9 @@ async def test_a_source_nobody_wired_up_waits_for_somebody_here(
         sources=sources,
         templates=templates,
     )
-    assert outcome == Review(reason=ReviewReason.SOURCE_UNAVAILABLE)
+    assert outcome == Review(
+        reason=ReviewReason.SOURCE_UNAVAILABLE, intent=Intent.ORDER_STATUS
+    )
 
 
 class _RefusesToBeAsked:
@@ -160,7 +162,9 @@ async def test_the_gate_decides_before_a_source_is_read(
         sources=Sources(knowledge_base=_RefusesToBeAsked()),  # type: ignore[arg-type]
         templates=templates,
     )
-    assert outcome == Review(reason=ReviewReason.SOURCE_UNAVAILABLE)
+    assert outcome == Review(
+        reason=ReviewReason.SOURCE_UNAVAILABLE, intent=Intent.ORDER_STATUS
+    )
 
 
 @pytest.mark.asyncio
@@ -177,7 +181,8 @@ async def test_nothing_found_is_a_gate_and_not_a_low_score(
         templates=templates,
     )
     assert outcome == Handover(
-        reasons=frozenset({BlockedReason.NO_SUPPORTING_EVIDENCE})
+        reasons=frozenset({BlockedReason.NO_SUPPORTING_EVIDENCE}),
+        intent=Intent.RETURN_POLICY,
     )
 
 
@@ -521,7 +526,9 @@ async def test_a_reference_nobody_can_show_this_customer_sends_them_back_to_chec
         intent=Intent.ORDER_STATUS,
         enquiry=Enquiry(message="Where is my order?", customer=1, order="9999"),
     )
-    expected = Clarify(reason=ClarificationReason.ORDER_NOT_FOUND)
+    expected = Clarify(
+        reason=ClarificationReason.ORDER_NOT_FOUND, intent=Intent.ORDER_STATUS
+    )
     assert await plan_for(stranger, sources=shop, templates=templates) == expected
     assert await plan_for(missing, sources=shop, templates=templates) == expected
 
@@ -546,7 +553,9 @@ async def test_a_shop_having_a_bad_afternoon_is_ours_to_answer_for(
     outcome = await plan_for(
         asking("Where is my order?"), sources=unwell, templates=templates
     )
-    assert outcome == Review(reason=ReviewReason.SOURCE_UNAVAILABLE)
+    assert outcome == Review(
+        reason=ReviewReason.SOURCE_UNAVAILABLE, intent=Intent.ORDER_STATUS
+    )
 
 
 @pytest.mark.asyncio

@@ -92,7 +92,7 @@ def test_a_question_answered_carries_what_it_rested_on() -> None:
             Route.HUMAN_ESCALATION,
         ),
         (
-            Clarify(ClarificationReason.MISSING_ORDER_ID),
+            Clarify(ClarificationReason.MISSING_ORDER_ID, intent=Intent.ORDER_STATUS),
             Clarification,
             Route.CLARIFICATION,
         ),
@@ -277,7 +277,7 @@ def test_nothing_reaches_a_customer_as_a_bare_code(locale: Locale) -> None:
     """
     stopping = [
         Escalate(frozenset({RiskReason.PAYMENT_DISPUTE})),
-        Clarify(ClarificationReason.MISSING_ORDER_ID),
+        Clarify(ClarificationReason.MISSING_ORDER_ID, intent=Intent.ORDER_STATUS),
         TriageReview(ReviewReason.INTENT_CHECK_UNAVAILABLE),
         Handover(frozenset({BlockedReason.NO_SUPPORTING_EVIDENCE})),
         stopped(SUNK),
@@ -306,7 +306,7 @@ def test_a_customer_is_told_one_thing_however_much_went_wrong() -> None:
 
 
 def test_the_language_reaches_the_wording() -> None:
-    asked = Clarify(ClarificationReason.MISSING_ORDER_ID)
+    asked = Clarify(ClarificationReason.MISSING_ORDER_ID, intent=Intent.ORDER_STATUS)
     english, french = spoken(asked, "en"), spoken(asked, "fr")
     assert isinstance(english, Clarification)
     assert isinstance(french, Clarification)
@@ -336,7 +336,7 @@ def test_a_stopped_request_cannot_be_described_without_telling_them(
     changed nothing any test could see.
     """
     for outcome in (
-        Clarify(ClarificationReason.MISSING_ORDER_ID),
+        Clarify(ClarificationReason.MISSING_ORDER_ID, intent=Intent.ORDER_STATUS),
         Escalate(frozenset({RiskReason.PAYMENT_DISPUTE})),
         TriageReview(ReviewReason.SOURCE_UNAVAILABLE),
     ):
@@ -352,9 +352,9 @@ def test_whitespace_is_not_something_to_send_anybody(blank: str) -> None:
     Which reaches a customer as an empty bubble, and an auditor as a citation
     pointing nowhere.
     """
-    asked = spoken(Clarify(ClarificationReason.MISSING_ORDER_ID)).model_dump(
-        mode="json"
-    )
+    asked = spoken(
+        Clarify(ClarificationReason.MISSING_ORDER_ID, intent=Intent.ORDER_STATUS)
+    ).model_dump(mode="json")
     for field in ("message", "wording"):
         with pytest.raises(ValidationError, match=field):
             REPLIES.validate_python({**asked, field: blank})
@@ -370,7 +370,7 @@ def test_every_reply_names_the_record_it_was_written_into() -> None:
     """A customer can quote it, and an auditor can find the decision behind it."""
     for outcome in (
         answered(),
-        Clarify(ClarificationReason.MISSING_ORDER_ID),
+        Clarify(ClarificationReason.MISSING_ORDER_ID, intent=Intent.ORDER_STATUS),
         Escalate(frozenset({RiskReason.PAYMENT_DISPUTE})),
         TriageReview(ReviewReason.SOURCE_UNAVAILABLE),
         stopped(SUNK),
