@@ -18,6 +18,7 @@ from app.agent.commerce import (
     CommerceGateway,
     CommerceUnavailableError,
     Found,
+    Observation,
     Record,
     freshness_of,
 )
@@ -63,6 +64,7 @@ class Citation:
     # and the answers have to survive as far as the case record, or the note
     # saying none of this describes a real purchase stops here.
     provider: str | None = None
+    observed: Observation | None = None
     observed_at: datetime | None = None
     synthetic: bool | None = None
 
@@ -416,6 +418,7 @@ async def _from_commerce(proceed: Proceed, *, sources: Sources) -> Outcome:
             reference=record.cited_as,
             content_hash=record.content_hash,
             provider=record.provider,
+            observed=record.observed,
             observed_at=record.observed_at,
             synthetic=record.synthetic,
         ),

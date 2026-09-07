@@ -637,14 +637,21 @@ async def test_a_case_keeps_what_the_customer_gave_us(
 @pytest.mark.asyncio
 async def test_a_request_held_here_arrives_with_what_it_was_judged_on(
     async_client: AsyncClient,
+    wired: None,
     signed_in: Callable[..., object],
+    session: AsyncSession,
 ) -> None:
     """Half a returns question, so a colleague finishes it from the entry.
 
     They were getting a route and a shortfall and nothing else. What the
     decision rested on stopped at the planner, so the case a person opens
-    named neither the document nor how any dimension had rated — and the
-    readme has been promising both since the case table landed.
+    named neither the document, nor how any dimension had rated, nor what the
+    message had been taken to be asking.
+
+    Read out of the stored row as well as the reply. The two are written from
+    the same object and a test touching only one of them proves half of what
+    it claims — and this one names the case, which is the half it was not
+    looking at.
     """
     headers = await signed_in()  # type: ignore[misc]
     response = await async_client.post(
@@ -660,17 +667,29 @@ async def test_a_request_held_here_arrives_with_what_it_was_judged_on(
     body = response.json()
     assert body["route"] == "internal_review"
     assert body["reasons"] == ["evidence_does_not_cover_the_question"]
+    assert body["intent"] == "return_policy"
 
     (cited,) = body["citations"]
     assert cited["reference"] == "kb:returns.standard.en.v1"
     assert cited["content_hash"].startswith("sha256:")
-    # Written policy is approved rather than observed, so the three fields
-    # that answer "who said this and when" have nothing to say about it.
+    # Written policy is approved rather than observed, so the fields
+    # answering who supplied it and when have nothing to say about it.
     assert cited["provider"] is None
+    assert cited["observed"] is None
     assert cited["observed_at"] is None
     assert cited["synthetic"] is None
-
     assert body["reliability"]["factors"]["coverage"] == "review_only"
+
+    stored = (
+        await session.execute(
+            select(SupportCase).where(SupportCase.reference == body["case"])
+        )
+    ).scalar_one()
+    assert stored.intent == "return_policy"
+    assert stored.reliability == body["reliability"]
+    assert [held["reference"] for held in stored.citations] == [
+        "kb:returns.standard.en.v1"
+    ]
 
 
 SHOP_NOW = datetime(2026, 9, 7, 12, 0, tzinfo=UTC)
@@ -723,5 +742,7 @@ async def test_a_reply_resting_on_invented_data_says_so_to_the_customer(
     assert cited["reference"] == "demo:order:4471"
     assert cited["provider"] == "demo"
     assert cited["synthetic"] is True
+    assert cited["observed"] == "live"
+    assert body["intent"] == "order_status"
     assert cited["observed_at"] == "2026-09-07T12:00:00Z"
     assert body["reliability"]["factors"]["freshness"] == "ready"

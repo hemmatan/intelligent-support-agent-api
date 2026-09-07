@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_vali
 
 from app.agent.answering import Handover, Outcome, Plan
 from app.agent.answering import Review as PlanReview
+from app.agent.commerce import Observation
 from app.agent.enquiry import MAX_MESSAGE
 from app.agent.intent import Intent
 from app.agent.knowledge import Locale
@@ -99,6 +100,10 @@ class Citation(BaseModel):
     # this describes a real purchase has to survive as far as the case record
     # or it stops being a warning to anybody.
     provider: str | None = None
+    # Whether it was read just now or kept from earlier. The rating derived
+    # from it survives; without this nobody re-opening the case can tell
+    # which of the two produced that rating.
+    observed: Observation | None = None
     observed_at: datetime | None = None
     synthetic: bool | None = None
 
@@ -180,6 +185,10 @@ class Escalation(BaseModel):
     wording: Said
     reliability: Reliability | None = None
     citations: list[Citation] = Field(default_factory=list)
+    # Absent where the request never got far enough to be read as anything.
+    # A fraud report leaves before intent is consulted, and inventing one for
+    # the column would file it under a question nobody established was asked.
+    intent: Intent | None = None
 
 
 class InternalReview(BaseModel):
@@ -194,6 +203,7 @@ class InternalReview(BaseModel):
     wording: Said
     reliability: Reliability | None = None
     citations: list[Citation] = Field(default_factory=list)
+    intent: Intent | None = None
 
 
 SupportReply = Annotated[
@@ -272,6 +282,7 @@ def _cited(plan: Plan) -> list[Citation]:
             reference=cited.reference,
             content_hash=cited.content_hash,
             provider=cited.provider,
+            observed=cited.observed,
             observed_at=cited.observed_at,
             synthetic=cited.synthetic,
         )
@@ -286,6 +297,7 @@ def _escalated(
     case: str,
     reliability: Reliability | None = None,
     citations: list[Citation] | None = None,
+    intent: Intent | None = None,
 ) -> Escalation:
     said = messages.tell(reasons, locale, Route.HUMAN_ESCALATION)
     return Escalation(
@@ -295,6 +307,7 @@ def _escalated(
         wording=said.cited,
         reliability=reliability,
         citations=citations or [],
+        intent=intent,
     )
 
 
@@ -314,11 +327,18 @@ def _from_plan(
             wording=said.cited,
             reliability=_reliability(plan),
             citations=_cited(plan),
+            intent=plan.intent,
         )
     reasons = sorted(plan.reasons, key=str)
     if plan.route is Route.HUMAN_ESCALATION:
         return _escalated(
-            list(reasons), messages, locale, case, _reliability(plan), _cited(plan)
+            list(reasons),
+            messages,
+            locale,
+            case,
+            _reliability(plan),
+            _cited(plan),
+            plan.intent,
         )
     if plan.route is Route.INTERNAL_REVIEW:
         said = messages.tell(list(reasons), locale, Route.INTERNAL_REVIEW)
@@ -329,6 +349,7 @@ def _from_plan(
             wording=said.cited,
             reliability=_reliability(plan),
             citations=_cited(plan),
+            intent=plan.intent,
         )
     assert plan.reply is not None  # the type refuses a direct answer without one
     return Answer(
