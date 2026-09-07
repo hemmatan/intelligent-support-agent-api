@@ -49,3 +49,63 @@ jobs:
           uv run --frozen alembic upgrade head
           uv run --frozen alembic check
           uv run --frozen alembic downgrade base
+
+  container:
+    name: Production container
+    runs-on: ubuntu-latest
+    env:
+      COMPOSE_PROJECT_NAME: dornashop-ci
+      DORNASHOP_SECRET_KEY: ci-only-secret-key-with-at-least-32-characters
+      DORNASHOP_CORS_ORIGINS: '["http://127.0.0.1"]'
+      DORNASHOP_DB_PASSWORD: ci-only-database-password
+      DORNASHOP_HTTP_PORT: "0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build production image
+        run: docker build --target runtime --tag dornashop-support:production .
+
+      - name: Verify runtime boundary
+        run: |
+          set -Eeuo pipefail
+          test "$(docker image inspect dornashop-support:production --format '{{.Config.User}}')" = dornashop
+          test "$(docker run --rm dornashop-support:production id -u)" -ne 0
+          docker run --rm dornashop-support:production \
+            sh -eu -c '
+              test ! -w /app
+              test -w /var/lib/dornashop
+              test "$DORNASHOP_DB_NAME" = /var/lib/dornashop/db.sqlite3
+              ! grep -q alembic ./start.sh
+            '
+          docker run --rm dornashop-support:production python -c \
+            "import aiosqlite, alembic, asyncpg, fastapi, httpx, main, sqlalchemy, uvicorn"
+          docker run --rm dornashop-support:production python -c \
+            "import importlib.util; assert all(importlib.util.find_spec(name) is None for name in ('mypy', 'pytest', 'ruff'))"
+
+      - name: Validate production Compose
+        run: docker compose -f docker-compose.prod.yml config --quiet
+
+      - name: Start production stack
+        run: |
+          docker compose -f docker-compose.prod.yml up \
+            --detach --no-build --wait --wait-timeout 120
+
+      - name: Verify production stack
+        run: |
+          set -Eeuo pipefail
+          database_id="$(docker compose -f docker-compose.prod.yml ps --quiet database)"
+          migrate_id="$(docker compose -f docker-compose.prod.yml ps --all --quiet migrate)"
+          web_id="$(docker compose -f docker-compose.prod.yml ps --quiet web)"
+
+          test "$(docker inspect "$database_id" --format '{{.State.Health.Status}}')" = healthy
+          test "$(docker inspect "$migrate_id" --format '{{.State.ExitCode}}')" -eq 0
+          test "$(docker inspect "$web_id" --format '{{.State.Health.Status}}')" = healthy
+
+          published_address="$(docker compose -f docker-compose.prod.yml port web 8000)"
+          published_port="${published_address##*:}"
+          curl --fail --silent --show-error \
+            "http://127.0.0.1:${published_port}/health" >/dev/null
+
+      - name: Stop production stack
+        if: always()
+        run: docker compose -f docker-compose.prod.yml down --volumes --remove-orphans
