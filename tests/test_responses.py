@@ -1,13 +1,14 @@
 """The only sentences a customer is sent, and what stops anything else."""
 
 import re
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Literal
 
 import pytest
 
+from app.agent.commerce import Observation, ProductRecord
 from app.agent.facts import Fact
 from app.agent.knowledge import (
     ItemCategory,
@@ -129,7 +130,7 @@ def test_the_reply_reads_the_same_way_round_every_time() -> None:
     """Ordered by the vocabulary, not by which the question mentioned first."""
     library = load_templates()
     both = frozenset({Fact.RETURN_WINDOW, Fact.RETURN_ELIGIBILITY})
-    reply = library.say(both, entry("returns.standard.en.v1"), "en")
+    reply = library.say(both, entry("returns.standard.en.v1").claims.values(), "en")
     assert reply.text == (
         "Returns are accepted within 30 days of delivery. Most items can be "
         "returned if unworn and in the original packaging."
@@ -146,7 +147,7 @@ def test_a_named_choice_reaches_a_customer_as_words() -> None:
     for locale, expected in (("en", "Most items"), ("fr", "La plupart des articles")):
         reply = library.say(
             frozenset({Fact.RETURN_ELIGIBILITY}),
-            entry(f"returns.standard.{locale}.v1"),
+            entry(f"returns.standard.{locale}.v1").claims.values(),
             locale,  # type: ignore[arg-type]
         )
         assert reply.text.startswith(expected)
@@ -159,7 +160,7 @@ def test_a_language_nobody_wrote_for_says_nothing(tmp_path: Path) -> None:
     with pytest.raises(NothingApprovedToSayError, match="standard_delivery_time"):
         library.say(
             frozenset({Fact.STANDARD_DELIVERY_TIME}),
-            entry("shipping.times.en.v1"),
+            entry("shipping.times.en.v1").claims.values(),
             "fr",
         )
 
@@ -238,7 +239,9 @@ def test_rewriting_approved_words_moves_the_hash_under_one_version() -> None:
 def test_a_reply_records_the_exact_wording_it_used() -> None:
     library = load_templates()
     reply = library.say(
-        frozenset({Fact.RETURN_WINDOW}), entry("returns.standard.en.v1"), "en"
+        frozenset({Fact.RETURN_WINDOW}),
+        entry("returns.standard.en.v1").claims.values(),
+        "en",
     )
     template = next(t for t in library if t.reference == "say:return_window.en.v1")
     assert reply.said == (f"say:return_window.en.v1@{template.content_hash}",)
@@ -252,7 +255,9 @@ def test_a_yes_or_no_reaches_a_customer_as_words() -> None:
     """
     library = load_templates()
     reply = library.say(
-        frozenset({Fact.RETURN_FINAL_SALE}), entry("returns.standard.en.v1"), "en"
+        frozenset({Fact.RETURN_FINAL_SALE}),
+        entry("returns.standard.en.v1").claims.values(),
+        "en",
     )
     assert "cannot be sent back" in reply.text
     assert "False" not in reply.text
@@ -266,7 +271,7 @@ def test_a_list_reaches_a_customer_as_a_sentence() -> None:
     ):
         reply = library.say(
             frozenset({Fact.RETURN_EXCLUDED_CATEGORIES}),
-            entry(f"returns.standard.{locale}.v1"),
+            entry(f"returns.standard.{locale}.v1").claims.values(),
             locale,  # type: ignore[arg-type]
         )
         assert expected in reply.text
@@ -361,3 +366,82 @@ def test_every_claim_a_policy_can_state_can_be_put_into_words() -> None:
         for field, declared in claims.model_fields.items():
             how, _ = _how_to_say(field, declared.annotation)
             assert isinstance(how, _Rendering)
+
+
+STOCK = {
+    "fact": "stock_availability",
+    "locale": "en",
+    "version": 1,
+    "approved": True,
+    "sentence": "That item {in_stock} at the moment.",
+    "words": {"in_stock_true": "is in stock", "in_stock_false": "is out of stock"},
+}
+
+
+def a_product(*, in_stock: bool) -> ProductRecord:
+    return ProductRecord(
+        provider="demo",
+        observed=Observation.LIVE,
+        observed_at=datetime(2026, 9, 7, 12, 0, tzinfo=UTC),
+        synthetic=True,
+        reference="12",
+        in_stock=in_stock,
+        quantity=4 if in_stock else 0,
+    )
+
+
+def test_a_row_from_the_shop_can_be_held_against_approved_wording() -> None:
+    """The check that used to know only about written policy.
+
+    A sentence naming a slot nothing declares is refused when the file loads,
+    and until now nothing declared what a row out of the shop states. So no
+    wording for one could exist: not because none was written, but because
+    none could have been accepted.
+
+    No such wording ships yet. What this shows is that the refusal has moved
+    from the shape of the evidence to whether anybody has approved a sentence.
+    """
+    approved = ResponseTemplate.model_validate(STOCK)
+    assert approved.fact is Fact.STOCK_AVAILABILITY
+
+
+def test_a_row_from_the_shop_fills_the_slots_a_policy_would() -> None:
+    """One phrase book, two kinds of evidence, and it knows about neither.
+
+    The library is handed values rather than the thing holding them, so a
+    catalogue row and a policy entry arrive in the same shape and the wording
+    cannot tell which it is serving.
+    """
+    library = TemplateLibrary([ResponseTemplate.model_validate(STOCK)])
+    asked = frozenset({Fact.STOCK_AVAILABILITY})
+
+    held = library.say(asked, a_product(in_stock=True).values(), "en")
+    assert held.text == "That item is in stock at the moment."
+    assert held.said == (f"{approved_reference()}@{approved_hash()}",)
+
+    gone = library.say(asked, a_product(in_stock=False).values(), "en")
+    assert gone.text == "That item is out of stock at the moment."
+
+
+def approved_reference() -> str:
+    return ResponseTemplate.model_validate(STOCK).reference
+
+
+def approved_hash() -> str:
+    return ResponseTemplate.model_validate(STOCK).content_hash
+
+
+def test_written_policy_still_answers_exactly_as_before() -> None:
+    """The boundary widened; nothing about the existing path moved.
+
+    Every shipped policy answer goes through the same call, so a regression
+    here would be a regression in the only thing that currently reaches a
+    customer.
+    """
+    library = load_templates()
+    both = frozenset({Fact.RETURN_WINDOW, Fact.RETURN_ELIGIBILITY})
+    reply = library.say(both, entry("returns.standard.en.v1").claims.values(), "en")
+    assert reply.text == (
+        "Returns are accepted within 30 days of delivery. Most items can be "
+        "returned if unworn and in the original packaging."
+    )

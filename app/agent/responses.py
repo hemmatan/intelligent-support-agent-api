@@ -26,11 +26,11 @@ from typing import Annotated, Literal, get_args, get_origin
 
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt, ValidationError
 
+from app.agent.commerce import OrderRecord, ProductRecord, Record, RefundRecord
 from app.agent.facts import Fact
 from app.agent.knowledge import (
     Locale,
     PolicyClaims,
-    PolicyEntry,
     ReturnPolicyClaims,
     ShippingPolicyClaims,
 )
@@ -44,10 +44,20 @@ _STRICT = ConfigDict(extra="forbid", frozen=True, strict=True)
 # Which claim models are able to state each fact, so a template can be checked
 # against the fields that could ever fill it rather than at the moment it is
 # needed, in front of somebody waiting.
-_STATED_BY: dict[Fact, list[type[PolicyClaims]]] = {}
-for _claims in (ReturnPolicyClaims, ShippingPolicyClaims):
-    for _field, _fact in _claims.STATES.items():
-        _STATED_BY.setdefault(_fact, []).append(_claims)
+# Written policy and the shop's own rows both declare which field settles
+# which question, so both can be registered here and approved wording checked
+# against either. The registry is what makes a template answerable at all: a
+# sentence naming a slot nothing declares is refused when the file loads.
+_STATED_BY: dict[Fact, list[type[PolicyClaims] | type[Record]]] = {}
+for _stating in (
+    ReturnPolicyClaims,
+    ShippingPolicyClaims,
+    OrderRecord,
+    RefundRecord,
+    ProductRecord,
+):
+    for _field, _fact in _stating.STATES.items():
+        _STATED_BY.setdefault(_fact, []).append(_stating)
 
 
 class ResponseTemplateError(RuntimeError):
@@ -265,14 +275,22 @@ class TemplateLibrary:
         return iter(self._approved.values())
 
     def say(
-        self, facts: frozenset[Fact], entry: PolicyEntry, locale: Locale
+        self,
+        facts: frozenset[Fact],
+        values: Mapping[str, object],
+        locale: Locale,
     ) -> ApprovedReply:
         """The reply, and the templates it was built from.
 
         Ordered by the fact vocabulary rather than by whatever the question
         mentioned first, so the same two facts always read the same way round.
+
+        Takes the values rather than the thing holding them. A policy entry
+        and a row out of the shop are different objects that answer the same
+        question — which slot takes which value — and asking for the answer
+        instead of the object is what lets one phrase book serve both without
+        knowing where either came from.
         """
-        values = entry.claims.values()
         sentences, used = [], []
         for fact in Fact:
             if fact not in facts:

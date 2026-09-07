@@ -383,7 +383,9 @@ async def _from_knowledge_base(
         )
 
     try:
-        reply = templates.say(requested, best.entry, proceed.enquiry.locale)
+        reply = templates.say(
+            requested, best.entry.claims.values(), proceed.enquiry.locale
+        )
     except NothingApprovedToSayError:
         # The evidence was good enough. Nobody has written the sentence.
         return Plan(

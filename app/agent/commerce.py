@@ -14,6 +14,7 @@ ran.
 import hashlib
 import inspect
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -142,6 +143,15 @@ class Record(BaseModel):
     observed_at: datetime
     synthetic: bool
 
+    STATES: ClassVar[Mapping[str, Fact]] = {}
+    """Which field settles which question, where the field is filled in.
+
+    The same declaration policy claims carry, for the same reason: what a row
+    can answer is read off the place the values live, so approved wording can
+    be held against the fields that could ever fill it rather than at the
+    moment somebody is waiting for a reply.
+    """
+
     ABOUT: ClassVar[frozenset[Fact]] = frozenset()
     """Every question this kind of record is the authority on.
 
@@ -161,6 +171,16 @@ class Record(BaseModel):
     def identity(self) -> str:
         """Which one of them this is, in the provider's own numbering."""
         raise NotImplementedError
+
+    def values(self) -> dict[str, object]:
+        """Every field as it was read, with nothing turned into prose yet.
+
+        A state leaves here as the token it is stored as. Which words stand
+        for it is customer-facing text and belongs with the rest of the
+        customer-facing text, versioned and hashed beside the sentence using
+        it — the division figures and named choices have had all along.
+        """
+        return dict(self.model_dump())
 
     @property
     def facts(self) -> frozenset[Fact]:
@@ -216,6 +236,12 @@ class Record(BaseModel):
 class OrderRecord(Record):
     """One order, as the shop holds it."""
 
+    STATES: ClassVar[Mapping[str, Fact]] = {
+        "state": Fact.ORDER_STATE,
+        "tracking_reference": Fact.TRACKING_REFERENCE,
+        "expected_delivery": Fact.DELIVERY_ESTIMATE,
+    }
+
     ABOUT: ClassVar[frozenset[Fact]] = frozenset(
         {Fact.ORDER_STATE, Fact.TRACKING_REFERENCE, Fact.DELIVERY_ESTIMATE}
     )
@@ -252,6 +278,12 @@ class OrderRecord(Record):
 
 class RefundRecord(Record):
     """What became of a refund against one order."""
+
+    STATES: ClassVar[Mapping[str, Fact]] = {
+        "state": Fact.REFUND_STATE,
+        "amount": Fact.REFUND_AMOUNT,
+        "currency": Fact.REFUND_AMOUNT,
+    }
 
     ABOUT: ClassVar[frozenset[Fact]] = frozenset(
         {Fact.REFUND_STATE, Fact.REFUND_AMOUNT, Fact.REFUND_TIMING}
@@ -300,6 +332,8 @@ class RefundRecord(Record):
 
 class ProductRecord(Record):
     """One catalogue entry, so far as stock goes."""
+
+    STATES: ClassVar[Mapping[str, Fact]] = {"in_stock": Fact.STOCK_AVAILABILITY}
 
     ABOUT: ClassVar[frozenset[Fact]] = frozenset({Fact.STOCK_AVAILABILITY})
 
