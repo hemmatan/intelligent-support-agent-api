@@ -9,6 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.agent.commerce import (
+    CommerceContractError,
     CommerceGateway,
     CommerceMisconfiguredError,
     CommerceUnavailableError,
@@ -21,6 +22,7 @@ from app.agent.commerce import (
     ProductRecord,
     RefundRecord,
     RefundState,
+    answered_with,
     freshness_of,
     names_a_customer,
 )
@@ -354,3 +356,68 @@ def test_reading_the_same_row_twice_does_not_look_like_a_change() -> None:
 
     moved = order(state=OrderState.DELIVERED)
     assert order().content_hash != moved.content_hash
+
+
+def test_a_row_of_the_asked_for_kind_comes_back() -> None:
+    assert answered_with(
+        Found(record=order()), OrderRecord, "an order lookup", about="4471"
+    ) == (order())
+
+
+def test_no_row_is_not_a_complaint() -> None:
+    """A reference matching nothing is an ordinary answer, not a fault."""
+    assert (
+        answered_with(NotAvailable(), OrderRecord, "an order lookup", about="4471")
+        is None
+    )
+
+
+def test_a_row_of_the_wrong_kind_is_refused() -> None:
+    """The annotation cannot enforce itself once the program is running.
+
+    Nothing stops an order lookup answering with a catalogue entry. It would
+    satisfy every check of shape while describing a different thing, and the
+    reply would be about a product, filed against a question about an order.
+    """
+    catalogue = ProductRecord(
+        provider="demo",
+        observed=Observation.LIVE,
+        observed_at=NOW,
+        synthetic=True,
+        reference="12",
+        in_stock=True,
+        quantity=3,
+    )
+    with pytest.raises(CommerceContractError, match="ProductRecord"):
+        answered_with(
+            Found(record=catalogue), OrderRecord, "an order lookup", about="4471"
+        )
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [None, {"reference": "4471"}, "4471", 4471, [order()]],
+    ids=["nothing", "a mapping", "a string", "a number", "a list"],
+)
+def test_an_answer_in_no_recognised_shape_is_refused(answer: object) -> None:
+    """Read as a missing row, each of these blames the customer for our fault."""
+    with pytest.raises(CommerceContractError):
+        answered_with(answer, OrderRecord, "an order lookup", about="4471")
+
+
+def test_the_right_kind_of_row_about_the_wrong_thing_is_refused() -> None:
+    """Structurally perfect and about a different purchase.
+
+    Every check of shape passes, and the row is then cited and rated as the
+    evidence for a question it does not answer — one order's state filed
+    against another order's enquiry. Keeping a question beside what was read
+    for it is the rule this puts back at the edge, where the answer comes
+    from somewhere that does not share it.
+    """
+    with pytest.raises(CommerceContractError, match="'4471'.*'4472'"):
+        answered_with(
+            Found(record=order(reference="4472")),
+            OrderRecord,
+            "an order lookup",
+            about="4471",
+        )

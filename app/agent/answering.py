@@ -10,16 +10,21 @@ scored, because scoring them invites a strong rating elsewhere to average them
 away. Only once the gates pass does anything become a number on a scale.
 """
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from app.agent.commerce import (
+    CommerceContractError,
     CommerceGateway,
     CommerceUnavailableError,
-    Found,
     Observation,
+    OrderRecord,
+    ProductRecord,
     Record,
+    RefundRecord,
+    answered_with,
     freshness_of,
 )
 from app.agent.enquiry import Enquiry
@@ -42,6 +47,8 @@ from app.agent.responses import (
 )
 from app.agent.retrieval import Hit, PolicyIndex, relevance_of
 from app.agent.triage import Clarify, Proceed, Review, UnexplainedEscalationError
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -244,6 +251,10 @@ class Sources:
         Nothing means no such row, or none belonging to whoever asked. The
         gateway is not in a position to say which of those it was, and
         neither, therefore, is anything above it.
+
+        An answer in no recognised shape is a third thing and raises. Folded
+        into the first, a broken integration would present as a reference the
+        customer had got wrong.
         """
         if self._commerce is None:
             raise CommerceUnavailableError("no commerce gateway is connected")
@@ -252,17 +263,23 @@ class Sources:
             if enquiry.product is None:
                 raise RequestNotPlacedError(f"{intent} without a product reference")
             listed = await self._commerce.product(enquiry.product)
-            return listed.record if isinstance(listed, Found) else None
+            return answered_with(
+                listed, ProductRecord, "a product lookup", about=enquiry.product
+            )
 
         if enquiry.order is None or enquiry.customer is None:
             raise RequestNotPlacedError(f"{intent} without an order and an account")
 
         if intent is Intent.REFUND_STATUS:
             owed = await self._commerce.refund(enquiry.order, customer=enquiry.customer)
-            return owed.record if isinstance(owed, Found) else None
+            return answered_with(
+                owed, RefundRecord, "a refund lookup", about=enquiry.order
+            )
 
         placed = await self._commerce.order(enquiry.order, customer=enquiry.customer)
-        return placed.record if isinstance(placed, Found) else None
+        return answered_with(
+            placed, OrderRecord, "an order lookup", about=enquiry.order
+        )
 
     def freshness(self, record: Record) -> ReliabilityLevel:
         """How far this reading's age lets it carry an answer."""
@@ -408,13 +425,28 @@ async def _from_commerce(proceed: Proceed, *, sources: Sources) -> Outcome:
 
     A provider having a bad day is ours to answer for. The customer asked a
     fair question and our own records were the thing that did not reply, so it
-    waits for one of us rather than turning into an error page.
+    waits for one of us rather than turning into an error page. A provider
+    answering in a shape nobody described reaches the same destination and is
+    logged differently: one is weather, the other is a defect somebody has to
+    go and repair, and the reply cannot be the place that difference shows.
     """
     profile = proceed.profile
 
     try:
         record = await sources.look_up(proceed.intent, proceed.enquiry)
-    except CommerceUnavailableError:
+    except CommerceUnavailableError as quiet:
+        # Somebody else's bad afternoon. Expected occasionally, and the reply
+        # is the same one a person gets when we simply cannot reach a source.
+        _log.warning("commerce did not answer %s: %s", proceed.intent, quiet)
+        return Review(reason=ReviewReason.SOURCE_UNAVAILABLE, intent=proceed.intent)
+    except CommerceContractError as broken:
+        # A defect in an integration, which will not mend itself and which
+        # somebody has to go and fix. The customer sees what they would see
+        # for an outage; this is the only place the difference is recorded,
+        # so it is recorded loudly.
+        _log.error(
+            "commerce answered %s in an unusable shape: %s", proceed.intent, broken
+        )
         return Review(reason=ReviewReason.SOURCE_UNAVAILABLE, intent=proceed.intent)
     if record is None:
         return Clarify(reason=_NOT_FOUND[proceed.intent], intent=proceed.intent)

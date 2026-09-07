@@ -1,6 +1,7 @@
 """Gathering what a placed request may gather, and rating what came back."""
 
 import inspect
+import logging
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -15,7 +16,14 @@ from app.agent.answering import (
     _rate,
     plan_for,
 )
-from app.agent.commerce import CommerceUnavailableError
+from app.agent.commerce import (
+    CommerceUnavailableError,
+    Found,
+    Observation,
+    OrderRecord,
+    OrderState,
+    ProductRecord,
+)
 from app.agent.demo import DemoStorefront
 from app.agent.enquiry import Enquiry
 from app.agent.facts import Fact
@@ -618,3 +626,138 @@ async def test_a_reply_records_which_row_it_rested_on(
     assert cited.reference == "demo:order:4471"
     assert cited.synthetic is True
     assert cited.observed_at == SHOP_NOW
+
+
+@pytest.mark.asyncio
+async def test_a_broken_integration_is_not_the_customer_s_mistake(
+    templates: TemplateLibrary,
+) -> None:
+    """The whole point of telling the two apart.
+
+    Read as a row that is not there, a provider returning nonsense sends back
+    a request to check a reference that was typed correctly — putting the
+    customer to work on a fault of ours, and leaving no sign in the case that
+    anything was wrong at our end.
+    """
+
+    class Nonsense:
+        async def order(self, reference: str, *, customer: int) -> object:
+            return {"reference": reference, "state": "dispatched"}
+
+    confused = Sources(
+        knowledge_base=PolicyIndex(load_corpus()),
+        commerce=Nonsense(),  # type: ignore[arg-type]
+    )
+    outcome = await plan_for(
+        asking("Where is my order?"), sources=confused, templates=templates
+    )
+    assert outcome == Review(
+        reason=ReviewReason.SOURCE_UNAVAILABLE, intent=Intent.ORDER_STATUS
+    )
+    assert not isinstance(outcome, Clarify)
+
+
+@pytest.mark.asyncio
+async def test_a_lookup_answering_about_something_else_is_not_an_answer(
+    templates: TemplateLibrary,
+) -> None:
+    """An order question answered with a catalogue entry.
+
+    Every rating downstream would have been taken correctly, about a row
+    describing a different thing — the failure that keeping a question and
+    its evidence together exists to prevent, arriving from outside.
+    """
+
+    class WrongShelf:
+        async def order(self, reference: str, *, customer: int) -> object:
+            return Found(
+                record=ProductRecord(
+                    provider="demo",
+                    observed=Observation.LIVE,
+                    observed_at=SHOP_NOW,
+                    synthetic=True,
+                    reference="12",
+                    in_stock=True,
+                    quantity=3,
+                )
+            )
+
+    muddled = Sources(
+        knowledge_base=PolicyIndex(load_corpus()),
+        commerce=WrongShelf(),  # type: ignore[arg-type]
+    )
+    outcome = await plan_for(
+        asking("Where is my order?"), sources=muddled, templates=templates
+    )
+    assert outcome == Review(
+        reason=ReviewReason.SOURCE_UNAVAILABLE, intent=Intent.ORDER_STATUS
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_shop_answering_about_a_different_order_is_not_an_answer(
+    templates: TemplateLibrary,
+) -> None:
+    """Held for us, not sent back to the customer as a bad reference."""
+
+    class WrongOrder:
+        async def order(self, reference: str, *, customer: int) -> object:
+            return Found(record=_an_order("9999"))
+
+    muddled = Sources(
+        knowledge_base=PolicyIndex(load_corpus()),
+        commerce=WrongOrder(),  # type: ignore[arg-type]
+    )
+    outcome = await plan_for(
+        asking("Where is my order?"), sources=muddled, templates=templates
+    )
+    assert outcome == Review(
+        reason=ReviewReason.SOURCE_UNAVAILABLE, intent=Intent.ORDER_STATUS
+    )
+
+
+@pytest.mark.asyncio
+async def test_weather_and_a_defect_are_told_apart_where_they_are_told_apart(
+    templates: TemplateLibrary, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Both wait for a colleague, so the log is the only place this shows.
+
+    A provider having a bad afternoon recurs and mends itself. A provider
+    answering in a shape nobody described is somebody's defect and will do it
+    again tomorrow. Reading the same in the reply and the case, they would be
+    indistinguishable to whoever has to decide whether anything needs doing.
+    """
+
+    class Quiet:
+        async def order(self, reference: str, *, customer: int) -> object:
+            raise CommerceUnavailableError("read timed out")
+
+    class Nonsense:
+        async def order(self, reference: str, *, customer: int) -> object:
+            return {"reference": reference}
+
+    for gateway, level in ((Quiet(), "WARNING"), (Nonsense(), "ERROR")):
+        caplog.clear()
+        with caplog.at_level(logging.DEBUG, logger="app.agent.answering"):
+            outcome = await plan_for(
+                asking("Where is my order?"),
+                sources=Sources(
+                    knowledge_base=PolicyIndex(load_corpus()),
+                    commerce=gateway,  # type: ignore[arg-type]
+                ),
+                templates=templates,
+            )
+        assert isinstance(outcome, Review)
+        assert [record.levelname for record in caplog.records] == [level]
+
+
+def _an_order(reference: str) -> OrderRecord:
+    """A structurally valid order, about whichever purchase is named."""
+    return OrderRecord(
+        provider="demo",
+        observed=Observation.LIVE,
+        observed_at=SHOP_NOW,
+        synthetic=True,
+        reference=reference,
+        state=OrderState.DISPATCHED,
+    )

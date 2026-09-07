@@ -63,6 +63,26 @@ class CommerceMisconfiguredError(CommerceError):
     """
 
 
+class CommerceContractError(CommerceError):
+    """The gateway answered in a shape this protocol does not describe.
+
+    A sibling of the other two rather than a subclass of either, because it
+    is neither of the things they mean. Retrying will not help — an
+    implementation returning the wrong thing returns it every time — and yet
+    it cannot stop the deployment either, since nothing can be asked at boot
+    what a lookup will hand back one afternoon in March.
+
+    So it is a permanent fault given a person's attention instead of a
+    process's. The request waits for a colleague, which is what happens when
+    a provider goes quiet, and the two are told apart in the log rather than
+    in the destination.
+
+    Kept separate from a missing row for the reason the whole class exists.
+    Read as one, a broken integration asks the customer to check a reference
+    they typed correctly, which sends them looking for a mistake that is ours.
+    """
+
+
 class Observation(StrEnum):
     """How a record came to be in front of us."""
 
@@ -341,6 +361,43 @@ Lookup: TypeAlias = Found[_R] | NotAvailable
 OrderLookup: TypeAlias = Lookup[OrderRecord]
 RefundLookup: TypeAlias = Lookup[RefundRecord]
 ProductLookup: TypeAlias = Lookup[ProductRecord]
+
+
+def answered_with(
+    lookup: object, expected: type[_R], asked: str, *, about: str
+) -> _R | None:
+    """The row a lookup was for, nothing at all, or a complaint about the answer.
+
+    Three outcomes where the caller previously drew two. Anything that was not
+    a found record counted as nothing found, so a provider handing back a
+    dictionary, a bare None, or a row of the wrong kind was indistinguishable
+    from a reference that matches no order — and the customer was asked to go
+    and check what they had typed.
+
+    The kind is checked because the annotation cannot enforce itself. Nothing
+    at runtime stops an order lookup answering with a product, and it would
+    pass every test of shape while being about a different thing entirely.
+
+    Which one it is gets checked for the same reason one step in. A row of the
+    right kind bearing the wrong reference passes every structural test there
+    is, and then gets cited and rated as the evidence for a question it does
+    not answer — a reply about one purchase filed against another. Keeping a
+    question beside what was read for it is the rule this restores at the
+    boundary, where the answer arrives from somewhere that does not share it.
+    """
+    if isinstance(lookup, NotAvailable):
+        return None
+    if not isinstance(lookup, Found):
+        raise CommerceContractError(f"{asked} answered with {type(lookup).__name__}")
+    if not isinstance(lookup.record, expected):
+        raise CommerceContractError(
+            f"{asked} answered with a {type(lookup.record).__name__}"
+        )
+    if lookup.record.identity != about:
+        raise CommerceContractError(
+            f"{asked} for {about!r} answered about {lookup.record.identity!r}"
+        )
+    return lookup.record
 
 
 def freshness_of(
