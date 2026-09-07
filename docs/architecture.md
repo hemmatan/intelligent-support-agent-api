@@ -643,9 +643,16 @@ and mandatory escalations also work end to end. A medium-confidence retrieval
 result is correctly held for internal review.
 
 The commerce path implements ownership-safe lookup and reliability assessment
-for order status, refund status and product availability. A commerce request
-that finds its evidence stops at internal review: the response library has no
-approved customer wording for those structured records.
+for order status, refund status and product availability. **Product
+availability answers a customer**, in both languages, from the row it cites.
+
+Order and refund status stop at internal review, and the reason is the phrase
+book rather than the evidence: both states are settled facts the records
+carry, and nobody has approved a sentence for saying them. Availability was
+finished first because it asks the least — whether something can be ordered
+is a yes or a no, so two sentences per language cover it, where each of the
+other two needs five. That is a gap a person closes by writing, and until
+they do the request goes to one.
 
 The knowledge base is a small bilingual corpus, not a full parallel
 translation.

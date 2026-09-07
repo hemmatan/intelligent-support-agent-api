@@ -29,6 +29,7 @@ The agent's design and the reasoning behind it are in
 - **Docker Workflows**: Containerized development and production topologies
 - **Developer-friendly**: Auto-reload, debugging, and development tools
 - **Validated Configuration**: Namespaced settings with production secret and CORS safeguards
+- **Two Kinds of Evidence**: Written policy is ranked and matched; the shop's own records are looked up with ownership inside the query, rated on age as well as coverage, and cited with the note that the demonstration rows are invented
 - **Grounded Answers**: Every customer-facing sentence is approved, versioned and content-hashed; figures come from structured claims, never from prose
 - **Four Honest Outcomes**: Answer, clarify, escalate or hold for review, with a machine-readable reason for every non-answer, an approved sentence for whoever reads it, and a recorded case
 
@@ -511,9 +512,10 @@ Deliberate, and recorded rather than hidden:
 - **Conversation history is not connected.** `Source.HISTORY` is declared as
   contextual in the decision profiles, but no adapter supplies it and no
   context assembler resolves references from prior turns.
-- **Commerce records have no approved answer wording.** When an order, refund
-  or availability record passes the evidence gates strongly enough for a
-  direct answer, the request is held for internal review instead.
+- **Order and refund status have no approved answer wording.** Both states
+  are facts the records carry; no sentence has been approved for saying them,
+  so a request whose evidence would otherwise be sent is held for internal
+  review. Product availability is finished and answers directly.
 - **There is no structured logging, and no metrics or traces.** The service
   exposes only conventional application logs.
 - **Requests are not rate-limited.** Authentication and support endpoints do
