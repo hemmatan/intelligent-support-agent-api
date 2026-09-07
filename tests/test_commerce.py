@@ -6,6 +6,7 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
+from pydantic import ValidationError
 
 from app.agent.commerce import (
     CommerceGateway,
@@ -93,17 +94,31 @@ def test_a_label_saying_live_cannot_launder_something_stale() -> None:
 
 @pytest.mark.parametrize(
     "observed_at",
-    [
-        None,
-        datetime(2026, 9, 6, 12, 0),  # no offset, so no moment in particular
-        NOW + timedelta(hours=1),  # somebody else's clock, ahead of ours
-    ],
+    [None, datetime(2026, 9, 6, 12, 0)],
+    ids=["no moment at all", "a moment with no offset"],
 )
-def test_a_timestamp_nothing_can_be_worked_out_from_is_refused(
-    observed_at: datetime | None,
-) -> None:
-    """A record dated after it was read describes something yet to happen."""
-    assert rated(order(observed_at=observed_at)) is ReliabilityLevel.UNUSABLE
+def test_a_reading_has_to_be_placed_in_time_to_exist(observed_at: object) -> None:
+    """Turned away on the way in, where this used to be scored on the way out.
+
+    We write the moment down ourselves, knowing when we asked, so one that is
+    absent or floating free is a fault where the record was assembled. Left to
+    be rated afterwards it would arrive looking like weak evidence, which is a
+    thing somebody may reasonably act on.
+    """
+    with pytest.raises(ValidationError):
+        order(observed_at=observed_at)
+
+
+def test_a_reading_taken_after_the_clock_it_is_held_against() -> None:
+    """Two clocks disagreeing, which neither value can be inspected for alone."""
+    ahead = order(observed_at=NOW + timedelta(hours=1))
+    assert rated(ahead) is ReliabilityLevel.UNUSABLE
+
+
+def test_a_scale_running_backwards_is_the_caller_s_mistake() -> None:
+    """Legible for less time than it is useful for describes nothing."""
+    with pytest.raises(ValueError, match="inside its"):
+        freshness_of(order(), now=NOW, ttl=timedelta(hours=2), readable_for=TTL)
 
 
 def test_an_order_settles_what_it_holds_and_not_what_its_kind_could_hold() -> None:
@@ -125,8 +140,13 @@ def test_an_order_settles_what_it_holds_and_not_what_its_kind_could_hold() -> No
     }
 
 
-def test_a_sum_without_a_currency_is_not_an_amount_anybody_can_be_told() -> None:
-    banked = {
+def test_a_sum_and_its_units_arrive_together_or_not_at_all() -> None:
+    """Half of them settles nothing anybody can be told.
+
+    The pair is what the fact is read off, so a figure by itself would look
+    like an amount everywhere except the one place that checks.
+    """
+    banked: dict[str, object] = {
         "provider": "demo",
         "observed": Observation.LIVE,
         "observed_at": NOW,
@@ -134,13 +154,63 @@ def test_a_sum_without_a_currency_is_not_an_amount_anybody_can_be_told() -> None
         "order": "4471",
         "state": RefundState.PAID,
     }
-    assert RefundRecord(**banked, amount=Decimal("20.00"), currency="EUR").facts == {  # type: ignore[arg-type]
-        Fact.REFUND_STATE,
-        Fact.REFUND_AMOUNT,
-    }
-    assert RefundRecord(**banked, amount=Decimal("20.00")).facts == {  # type: ignore[arg-type]
-        Fact.REFUND_STATE
-    }
+    paid = RefundRecord(**banked, amount=Decimal("20.00"), currency="EUR")  # type: ignore[arg-type]
+    assert paid.facts == {Fact.REFUND_STATE, Fact.REFUND_AMOUNT}
+    assert RefundRecord(**banked).facts == {Fact.REFUND_STATE}  # type: ignore[arg-type]
+
+    for broken in (
+        {"amount": Decimal("20.00")},
+        {"currency": "EUR"},
+        {"amount": Decimal("-5"), "currency": "EUR"},
+        {"amount": Decimal("NaN"), "currency": "EUR"},
+        {"amount": Decimal("20.00"), "currency": "euros"},
+    ):
+        with pytest.raises(ValidationError):
+            RefundRecord(**banked, **broken)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "broken",
+    [
+        {"provider": ""},
+        {"provider": "   "},
+        {"reference": ""},
+        {"reference": " "},
+        {"carrier": ""},
+        {"tracking_reference": "  "},
+    ],
+    ids=lambda case: str(sorted(case)),
+)
+def test_a_value_that_is_only_whitespace_is_a_value_nobody_supplied(
+    broken: dict[str, str],
+) -> None:
+    """Trimmed before it is measured, a rule wanting one character taking one space."""
+    with pytest.raises(ValidationError):
+        order(**broken)
+
+
+@pytest.mark.parametrize(
+    ("in_stock", "quantity"),
+    [(False, 4), (True, 0), (True, -1), (False, -1)],
+)
+def test_a_count_and_an_answer_that_disagree_cannot_both_be_written_down(
+    in_stock: bool, quantity: int
+) -> None:
+    """Whichever a reply were built from, the other sits there contradicting it.
+
+    Which one gets used would then come down to the order somebody happened
+    to read the fields in.
+    """
+    with pytest.raises(ValidationError):
+        ProductRecord(
+            provider="demo",
+            observed=Observation.LIVE,
+            observed_at=NOW,
+            synthetic=True,
+            reference="12",
+            in_stock=in_stock,
+            quantity=quantity,
+        )
 
 
 def test_a_catalogue_entry_answers_about_stock() -> None:

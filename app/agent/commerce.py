@@ -16,7 +16,24 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
-from typing import ClassVar, Generic, Protocol, TypeAlias, TypeVar, runtime_checkable
+from typing import (
+    Annotated,
+    ClassVar,
+    Generic,
+    Protocol,
+    TypeAlias,
+    TypeVar,
+    runtime_checkable,
+)
+
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    NonNegativeInt,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 from app.agent.facts import Fact
 from app.agent.reliability import ReliabilityLevel
@@ -74,8 +91,15 @@ class RefundState(StrEnum):
     DECLINED = "declined"
 
 
-@dataclass(frozen=True, kw_only=True)
-class Record:
+_STRICT = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+# Copied off a receipt or a parcel, so surrounding space is a keystroke and
+# not part of the value. Trimmed before it is measured, because a rule
+# demanding one character is satisfied by one space.
+Named = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+class Record(BaseModel):
     """What anything out of the shop's records has to say about itself.
 
     Provenance travels with the value. A citation naming a reference and a
@@ -83,11 +107,17 @@ class Record:
     when they answered, or whether the answer describes a real shop at all.
     All three bear on how far the record may carry a reply, so they are on the
     record and not reassembled afterwards from whatever the caller remembers.
+
+    Validated rather than merely annotated. These are built from what an
+    outside service said, and a type hint stops nobody: a quantity of minus
+    four and a blank provider went in happily and came out ready to be cited.
     """
 
-    provider: str
+    model_config = _STRICT
+
+    provider: Named
     observed: Observation
-    observed_at: datetime | None
+    observed_at: datetime
     synthetic: bool
 
     ABOUT: ClassVar[frozenset[Fact]] = frozenset()
@@ -102,8 +132,21 @@ class Record:
     exactly like one nobody asked.
     """
 
+    @field_validator("observed_at")
+    @classmethod
+    def check_the_reading_is_placed_in_time(cls, when: datetime) -> datetime:
+        """An hour with no offset is an hour in nobody's day.
 
-@dataclass(frozen=True, kw_only=True)
+        The moment is ours to record — we know when we asked — so a reading
+        arriving without one is a fault at the boundary and not a property of
+        the record. Refusing here keeps the arithmetic downstream comparing
+        two things of the same kind.
+        """
+        if when.tzinfo is None or when.tzinfo.utcoffset(when) is None:
+            raise ValueError("observed_at carries no offset, so names no moment")
+        return when
+
+
 class OrderRecord(Record):
     """One order, as the shop holds it."""
 
@@ -111,10 +154,10 @@ class OrderRecord(Record):
         {Fact.ORDER_STATE, Fact.TRACKING_REFERENCE, Fact.DELIVERY_ESTIMATE}
     )
 
-    reference: str
+    reference: Named
     state: OrderState
-    carrier: str | None = None
-    tracking_reference: str | None = None
+    carrier: Named | None = None
+    tracking_reference: Named | None = None
     expected_delivery: date | None = None
 
     @property
@@ -135,7 +178,6 @@ class OrderRecord(Record):
         return frozenset(settled)
 
 
-@dataclass(frozen=True, kw_only=True)
 class RefundRecord(Record):
     """What became of a refund against one order."""
 
@@ -143,10 +185,30 @@ class RefundRecord(Record):
         {Fact.REFUND_STATE, Fact.REFUND_AMOUNT, Fact.REFUND_TIMING}
     )
 
-    order: str
+    order: Named
     state: RefundState
     amount: Decimal | None = None
-    currency: str | None = None
+    currency: Annotated[str, StringConstraints(pattern=r"^[A-Z]{3}$")] | None = None
+
+    @model_validator(mode="after")
+    def check_the_sum_is_one_somebody_could_be_paid(self) -> "RefundRecord":
+        """A figure and its units arrive together or neither arrives.
+
+        Half of them settles nothing a customer can be told, and the pair is
+        what the fact below is read off, so a sum on its own would look like
+        an amount to everything except the one place that checks.
+
+        Money that is not a number, or is a number below zero, is a refund
+        running the wrong way. Neither is a smaller version of the right
+        answer, and rating either would put it in front of somebody.
+        """
+        if (self.amount is None) != (self.currency is None):
+            raise ValueError("an amount needs its currency, and a currency its amount")
+        if self.amount is not None and not self.amount.is_finite():
+            raise ValueError(f"{self.amount} is not a sum of money")
+        if self.amount is not None and self.amount < 0:
+            raise ValueError(f"{self.amount} is a refund owed the other way")
+        return self
 
     @property
     def facts(self) -> frozenset[Fact]:
@@ -157,15 +219,28 @@ class RefundRecord(Record):
         return frozenset(settled)
 
 
-@dataclass(frozen=True, kw_only=True)
 class ProductRecord(Record):
     """One catalogue entry, so far as stock goes."""
 
     ABOUT: ClassVar[frozenset[Fact]] = frozenset({Fact.STOCK_AVAILABILITY})
 
-    reference: str
+    reference: Named
     in_stock: bool
-    quantity: int | None = None
+    quantity: NonNegativeInt | None = None
+
+    @model_validator(mode="after")
+    def check_the_count_and_the_answer_agree(self) -> "ProductRecord":
+        """Four of them in the warehouse and none of them for sale is two answers.
+
+        Whichever a reply were built from, the other is sitting in the same
+        record contradicting it, and which one gets used is then a question
+        about the order the fields happen to be read in.
+        """
+        if self.quantity is not None and self.in_stock != (self.quantity > 0):
+            raise ValueError(
+                f"in_stock is {self.in_stock} beside a quantity of {self.quantity}"
+            )
+        return self
 
     @property
     def facts(self) -> frozenset[Fact]:
@@ -217,13 +292,19 @@ def freshness_of(
     is a contradiction, and the label is the half that can be wrong, so age
     settles it. That keeps a flag from laundering something stale.
 
-    No timestamp, one without an offset, or one dated after the moment it was
-    read: all refused. The last is somebody else's clock disagreeing with
-    ours, and a record describing a state of affairs that has not arrived yet
-    cannot be reasoned about at all.
+    What a reading is on its own the record settles: it cannot be built
+    without a moment, and the moment cannot be one with no offset. What is
+    left here is what only shows up between two values. A reading dated after
+    the clock it is measured against is two clocks disagreeing, and a record
+    of something that has not happened yet supports no reasoning at all. A
+    window of legibility shorter than the window of usefulness is a scale
+    running backwards, and it is the caller's mistake rather than a poor
+    rating, so it is raised instead of returned.
     """
-    if record.observed_at is None or record.observed_at.tzinfo is None:
-        return ReliabilityLevel.UNUSABLE
+    if readable_for < ttl:
+        raise ValueError(f"readable for {readable_for}, which is inside its {ttl} life")
+    if now.tzinfo is None or now.tzinfo.utcoffset(now) is None:
+        raise ValueError("the moment to measure against carries no offset")
 
     age = now - record.observed_at
     if age < timedelta(0):
