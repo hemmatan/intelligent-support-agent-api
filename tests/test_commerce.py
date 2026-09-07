@@ -304,3 +304,53 @@ async def test_a_stand_in_can_answer_the_way_the_real_thing_would() -> None:
     # Somebody else's, and one that never existed. Same answer to both.
     assert await gateway.order("4471", customer=2) == NotAvailable()
     assert await gateway.order("9999", customer=1) == NotAvailable()
+
+
+def test_a_row_is_named_by_whoever_supplied_it() -> None:
+    """Two shops both numbering an order 4471 is the ordinary case.
+
+    A bare number in the record of a decision poses a question rather than
+    answering one, so the supplier and the sort of thing are carried with it.
+    A refund borrows the number of the order it undoes, having none of its own.
+    """
+    assert order().cited_as == "demo:order:4471"
+    assert (
+        ProductRecord(
+            provider="dummyjson",
+            observed=Observation.LIVE,
+            observed_at=NOW,
+            synthetic=True,
+            reference="13",
+            in_stock=False,
+            quantity=0,
+        ).cited_as
+        == "dummyjson:product:13"
+    )
+    assert (
+        RefundRecord(
+            provider="demo",
+            observed=Observation.LIVE,
+            observed_at=NOW,
+            synthetic=True,
+            order="4468",
+            state=RefundState.PAID,
+            amount=Decimal("49.99"),
+            currency="EUR",
+        ).cited_as
+        == "demo:refund:4468"
+    )
+
+
+def test_reading_the_same_row_twice_does_not_look_like_a_change() -> None:
+    """When we looked is outside the digest, and deliberately.
+
+    Inside it, every reading of an untouched order would digest differently
+    and the value would answer nothing. What an audit wants of it is the one
+    question it can then answer: has this moved since the reply that rested
+    on it went out.
+    """
+    later = order(observed_at=NOW + timedelta(hours=5), observed=Observation.CACHED)
+    assert order().content_hash == later.content_hash
+
+    moved = order(state=OrderState.DELIVERED)
+    assert order().content_hash != moved.content_hash

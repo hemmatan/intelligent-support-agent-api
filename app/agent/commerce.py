@@ -11,7 +11,9 @@ all — not in memory, not in a log, not in a reply assembled before the check
 ran.
 """
 
+import hashlib
 import inspect
+import json
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -132,6 +134,39 @@ class Record(BaseModel):
     exactly like one nobody asked.
     """
 
+    KIND: ClassVar[str] = ""
+    """What sort of thing this is, as the reference naming it says so."""
+
+    @property
+    def identity(self) -> str:
+        """Which one of them this is, in the provider's own numbering."""
+        raise NotImplementedError
+
+    @property
+    def cited_as(self) -> str:
+        """How an audit names this row a year from now.
+
+        Qualified by whoever supplied it. Two shops both numbering an order
+        4471 is the ordinary case, not the exotic one, and a bare number in
+        the record of a decision would be a question rather than an answer.
+        """
+        return f"{self.provider}:{self.KIND}:{self.identity}"
+
+    @property
+    def content_hash(self) -> str:
+        """Digest of what the row asserted, and not of when it was read.
+
+        Provenance is deliberately outside it. Reading the same unchanged
+        order twice would otherwise produce two digests, which makes the
+        digest useless for the one question worth asking of it: has this
+        changed since the reply that rested on it went out.
+        """
+        stated = self.model_dump(
+            mode="json", exclude={"provider", "observed", "observed_at", "synthetic"}
+        )
+        canonical = json.dumps(stated, sort_keys=True, separators=(",", ":"))
+        return f"sha256:{hashlib.sha256(canonical.encode()).hexdigest()}"
+
     @field_validator("observed_at")
     @classmethod
     def check_the_reading_is_placed_in_time(cls, when: datetime) -> datetime:
@@ -154,11 +189,17 @@ class OrderRecord(Record):
         {Fact.ORDER_STATE, Fact.TRACKING_REFERENCE, Fact.DELIVERY_ESTIMATE}
     )
 
+    KIND: ClassVar[str] = "order"
+
     reference: Named
     state: OrderState
     carrier: Named | None = None
     tracking_reference: Named | None = None
     expected_delivery: date | None = None
+
+    @property
+    def identity(self) -> str:
+        return self.reference
 
     @property
     def facts(self) -> frozenset[Fact]:
@@ -185,10 +226,17 @@ class RefundRecord(Record):
         {Fact.REFUND_STATE, Fact.REFUND_AMOUNT, Fact.REFUND_TIMING}
     )
 
+    KIND: ClassVar[str] = "refund"
+
     order: Named
     state: RefundState
     amount: Decimal | None = None
     currency: Annotated[str, StringConstraints(pattern=r"^[A-Z]{3}$")] | None = None
+
+    @property
+    def identity(self) -> str:
+        """Named by the order it undoes; a refund has no number of its own."""
+        return self.order
 
     @model_validator(mode="after")
     def check_the_sum_is_one_somebody_could_be_paid(self) -> "RefundRecord":
@@ -224,9 +272,15 @@ class ProductRecord(Record):
 
     ABOUT: ClassVar[frozenset[Fact]] = frozenset({Fact.STOCK_AVAILABILITY})
 
+    KIND: ClassVar[str] = "product"
+
     reference: Named
     in_stock: bool
     quantity: NonNegativeInt | None = None
+
+    @property
+    def identity(self) -> str:
+        return self.reference
 
     @model_validator(mode="after")
     def check_the_count_and_the_answer_agree(self) -> "ProductRecord":
