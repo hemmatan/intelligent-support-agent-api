@@ -359,10 +359,11 @@ alembic upgrade head
 
 ## Docker
 
-The current Docker setup is intentionally development-oriented:
+The repository provides three Compose entry points:
 
 - `docker-compose.yml`: Baseline local/demo setup without auto-reload.
 - `docker-compose.dev.yml`: Local development setup with source mounting and hot-reload.
+- `docker-compose.prod.yml`: Production topology without source mounting.
 
 The build context is filtered by `.dockerignore`: local environment files,
 virtual environments, repository history, databases and generated caches are
@@ -389,11 +390,24 @@ After migrations succeed, `start.sh` replaces its shell process with Uvicorn.
 Uvicorn therefore runs as PID 1 and receives container termination signals
 directly during a graceful stop.
 
-The setup is not suitable for production as it stands: `docker-compose.yml`
-bind-mounts the source tree. Known work before a production deployment:
+The production Compose stack starts PostgreSQL with a named volume, waits for
+the database health check, runs migrations as a one-shot service, and starts
+the API only after migration succeeds. The API container uses the image's
+health check and has no source-code bind mount.
 
-- PostgreSQL with persistent storage and migrations run as a one-shot service.
-- A production Compose file without source-code bind mounts.
+Set `DORNASHOP_SECRET_KEY`, `DORNASHOP_DB_PASSWORD` and
+`DORNASHOP_CORS_ORIGINS` in the deployment environment before starting it:
+
+```bash
+docker compose -f docker-compose.prod.yml up --build
+```
+
+The database name, database user and published HTTP port default to
+`dornashop`, `dornashop` and `8000`, respectively.
+`DORNASHOP_HUGGINGFACE_API_TOKEN` is passed through when configured; without
+it, retrieval uses the application's documented lexical fallback. TLS
+termination, external secret storage and database backups remain deployment
+environment responsibilities.
 
 ## Known limitations
 
