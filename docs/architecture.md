@@ -21,7 +21,7 @@ Deciding which is the hard part.
 |---|---|
 | Direct response | Evidence is strong enough to answer without supervision |
 | Clarification | The customer has to tell us something first |
-| Internal review | Nothing is sent yet. Staff review a draft, retry a failed source, or redirect |
+| Internal review | Nothing is sent yet. Staff inspect the evidence, retry a failed source, or redirect |
 | Human escalation | Automation must not proceed |
 
 A missing order number, a source outage and a fraud report all mean "I can't
@@ -31,7 +31,7 @@ answer", and all need different handling.
 
 ```mermaid
 flowchart TD
-    A[Authenticated customer message] --> B[Assemble context<br/>identity, commerce linkage, locale,<br/>referents carried over from prior turns]
+    A[Authenticated customer message] --> B[Assemble current context<br/>identity, commerce linkage, locale]
     B --> C{Mandatory risk rules}
     C -->|fraud, dispute, compromise, legal threat| ESC[Human escalation]
     C -->|clear| D[Classify intent<br/>listed phrases; no model in this path]
@@ -47,7 +47,7 @@ flowchart TD
 
     G -->|if declared| KB[Approved knowledge base]
     G -->|if declared| COM[Commerce gateway<br/>ownership enforced inside the query]
-    G -->|if declared| HIST[Conversation history<br/>context, not business truth]
+    G -. future contextual lookup .-> HIST[Conversation history<br/>declared, not implemented]
 
     KB --> BM[BM25 lexical]
     KB --> SEM[Multilingual semantic]
@@ -57,10 +57,10 @@ flowchart TD
     FUSE --> EV[Assemble typed evidence]
     COM -->|record found| EV
     COM -->|no record this customer may see| CLR
-    HIST --> EV
+    HIST -. future context only .-> EV
 
     EV --> AVAIL{Required sources usable?}
-    AVAIL -->|no| REV[Internal queue<br/>retry, draft, or staff writes it]
+    AVAIL -->|no| REV[Internal queue<br/>inspect evidence, retry source, or redirect]
     AVAIL -->|yes| PLAN[Build typed response plan<br/>material claims with evidence references]
 
     PLAN --> GATE{Structural validity gates}
@@ -83,6 +83,10 @@ flowchart TD
     AUD --> OUT[Deliver customer-visible response<br/>answer, question, or acknowledgement]
 ```
 
+The dashed history path is a decision for later work, not running code.
+`Source.HISTORY` is declared by the decision profiles, but no history adapter
+or referent resolver exists.
+
 Three things the diagram makes plainer than prose can. Risk rules run before
 anything else, so a payment dispute never reaches a model. Ownership is
 enforced inside the commerce query, so another customer's order is never
@@ -101,13 +105,14 @@ anything.
 
 ## Where answers come from
 
-Three sources, each authoritative for a different kind of claim:
+The design assigns authority to three sources; the third is declared but not
+implemented:
 
 | Source | Authoritative for |
 |---|---|
 | Commerce gateway | Customer, product, cart and order facts |
 | Approved knowledge base | Policies and procedures |
-| Support database | Conversation history and prior tickets |
+| Support database *(declared, not implemented)* | Conversation history and prior tickets |
 
 "Commerce" here means the shop's own operational data — customers, products,
 carts and orders — as opposed to policy, which applies to everyone and rarely
@@ -144,42 +149,48 @@ wins outright. Otherwise the request clarifies and asks which to answer
 first. Answering both in one turn is out of scope.
 
 A conflict is two admissible records disagreeing about **the same material
-claim, the same scope, and the same effective time**. An older conversation
-saying an order was processing does not conflict with a commerce result
-saying it shipped — the order moved. Two policy versions with different
-effective dates do not conflict either. Without the time dimension, every
-order that ever changed state would escalate.
+claim, the same scope, and the same effective time**. If history is added, an
+older conversation saying an order was processing does not conflict with a
+commerce result saying it shipped — the order moved. Two policy versions with
+different effective dates do not conflict either. Without the time dimension,
+every order that ever changed state would escalate.
 
 A real conflict that cannot be resolved escalates. It is never settled by
 taking the higher retrieval score.
 
 The support database is authoritative that a message or ticket **exists**. It
-is never authoritative for a claim made inside one. History can establish
-that the customer previously referred to order 4471; it can never establish
-that 4471 was delivered. A customer asserting "you already refunded me" in an
-earlier message is not evidence of a refund.
+is never authoritative for a claim made inside one. In the history design, a
+previous reference to order 4471 establishes only that the customer named
+4471; it does not establish that 4471 was delivered. A customer asserting
+"you already refunded me" in an earlier message is not evidence of a refund.
 
-### History is read twice, for two different things
+### History has two roles, and neither is built
+
+`Source.HISTORY` is declared as contextual in every decision profile. No
+adapter feeds it into `Sources`, and no context assembler resolves prior
+referents. The two roles below set the boundary for later work; they do not
+describe the running service.
 
 Resolving what a message refers to is not answering it. "Is it still
-available?" names no product, and the previous turn may name one. Reading
-that is context assembly, and it happens **before** triage, which is why the
-flow above loads referents in its first step and why triage receives what is
-already known rather than going to find out.
+available?" names no product, and the previous turn may name one. If history
+is added, resolving that reference belongs to context assembly **before**
+triage. Triage receives what is already known rather than going to find it.
 
-The alternative was letting triage query history when a required input is
-missing. That was rejected: triage exists to decide which sources a request
-may touch, and a triage that reads a source to reach its decision has already
-spent the guarantee it was there to provide. Nothing is fetched on a message's
-behalf until the request has been placed.
+The alternative is letting triage query history when a required input is
+missing. That is rejected: triage exists to decide which business sources a
+request may touch, and a triage that reads one to reach its decision has
+already spent the guarantee it was there to provide. A future context
+assembler gets only the narrower job of recovering an identifier the same
+customer already gave us. No policy or commerce source is fetched until the
+request has been placed.
 
-So history appears in two roles with different authority, and the difference
-is what it is being asked for. Before triage it supplies an identifier the
-customer already gave us — a fact about the conversation, which history owns.
-After a request proceeds it is a contextual source, able to colour an answer
-and never to be the reason for one. In neither role does it establish a
-business fact: a resolved product reference still sends the request to
-commerce to find out whether that product is in stock.
+The two roles carry different authority because they ask different questions.
+Before triage, history supplies an identifier the customer already gave us —
+a fact about the conversation, which history owns. After a request proceeds,
+it is a contextual source, able to colour an answer and never to be the reason
+for one. In neither role does it establish a business fact: a resolved product
+reference still sends the request to commerce to find out whether that product
+is in stock.
 
 ### Commerce data
 
@@ -247,14 +258,19 @@ out as a good answer.
 We do not publish a percentage. The available evidence does not support
 calibrated probabilities, and `0.83` would be invented precision.
 
-The weakest level maps directly to a route:
+The weakest level maps directly to an **evidence route**:
 
-| Weakest applicable factor | Route |
+| Weakest applicable factor | Evidence route |
 |---|---|
 | `READY` | Direct response |
 | `ACCEPTABLE` | Direct response |
 | `REVIEW_ONLY` | Internal review |
 | `UNUSABLE` | Human escalation |
+
+That route says how far the evidence can carry. A direct evidence route still
+needs approved wording for the facts being answered. If none exists,
+`Plan.held_back` moves it to internal review; it cannot turn a review or
+escalation into an answer.
 
 It is an automation-readiness judgement, not a correctness estimate. The API
 publishes it as an ordered category with its scale attached, so that nothing
@@ -264,20 +280,21 @@ reads as a probability:
 "reliability": { "level": "acceptable", "ordinal": 2, "scale": 3 }
 ```
 
-`REVIEW_ONLY` means a usable draft exists. `UNUSABLE` means no automation
-output is worth showing anyone, and a human ticket is created instead.
+`REVIEW_ONLY` means the evidence is useful but needs a colleague's judgement.
+`UNUSABLE` means automation must not answer, and a human ticket is created
+instead.
 
-`READY` and `ACCEPTABLE` share a route today. They stay distinct because the
-difference is worth measuring — how often answers go out on pristine evidence
-versus evidence that is imperfect but safe — and because tightening the bar
-later should be a routing change, not a rescoring one.
+`READY` and `ACCEPTABLE` share an evidence route today. They stay distinct
+because the difference is worth measuring — how often evidence is pristine
+versus imperfect but safe — and because tightening the bar later should be a
+routing change, not a rescoring one.
 
 The levels and the per-factor rubric for what each one means are defined in
-`app/agent/reliability.py`, and the reason codes in `app/agent/reasons.py` —
-separately, because a code explains why a request went somewhere and most of
-them have nothing to do with how reliable an answer was. The material-claim
-enumeration belongs beside them when it is written, rather than being spelled
-out here where a second copy would drift.
+`app/agent/reliability.py`, the reason codes in `app/agent/reasons.py`, and the
+material claims and their coverage rules in `app/agent/facts.py`. They remain
+separate because a code explains why a request went somewhere and most codes
+have nothing to do with how reliable an answer was. They remain in code rather
+than being spelled out here, where a second copy would drift.
 
 ## Gates run before any scoring
 
@@ -317,8 +334,8 @@ safe:
 - A required factor missing at runtime is `UNUSABLE`.
 - Only required factors enter the minimum. A profile may declare a source
   contextual, and a contextual source failing must not downgrade an answer
-  the required sources already support. A history lookup timing out cannot
-  block an order status the commerce gateway answered completely.
+  the required sources already support. If history lookup is added, a timeout
+  must not block an order status the commerce gateway answered completely.
 
 Without them, a source failing to return a value could make that factor
 "inapplicable" and *improve* the result. Under weakest-link aggregation that
@@ -373,8 +390,9 @@ prose.
 
 ### What the model does
 
-A Hugging Face embedding model provides multilingual semantic retrieval over
-the knowledge base, alongside lexical BM25 search.
+When `DORNASHOP_HUGGINGFACE_API_TOKEN` is configured, a Hugging Face embedding
+model provides multilingual semantic retrieval over the knowledge base,
+alongside lexical BM25 search. Without the token, retrieval uses BM25 alone.
 
 The two are not interchangeable, and the reliability level treats them
 asymmetrically. BM25 returning nothing is a fact: the question and the
@@ -392,17 +410,15 @@ definite answer where a similarity has only a degree.
 Intent and risk are decided by listed phrases, with no model in either path.
 `IntentClassifier` describes the shape one would have to take to be admitted
 and nothing implements it, which is a conclusion rather than an unfinished
-task. A generative model writes staff-only drafts and history summaries.
+task. No generative model is wired into the service.
 
 No model is a source of business facts, and none writes to a customer.
 
-That holds through review. A staff member reading a model draft is not
-approving prose for delivery — the draft is an aid to reading the evidence.
-Approving means confirming the evidence, the template and the slot values,
-after which the response is rendered from the template like any other. Staff
-who want to say something the templates cannot express answer through the
-human channel, which is not agent output. There is no path from generated
-prose to a customer.
+That holds through review. When evidence was assessed, a staff member receives
+it with the citations and per-factor ratings that explain why automation
+stopped. This API lets them claim the case and record how it was resolved; it
+does not draft, edit, approve or deliver a reply. If staff answer the customer,
+they do so through the human channel outside this service.
 
 Sensitive-situation detection is the deterministic rules alone. Nothing a
 model returns can raise or lower a risk, because no model is asked. What that
@@ -483,23 +499,27 @@ routing correctness.
 ## Every decision is recorded before anything is sent
 
 What a member of staff does next is outside this API. They see the case, take
-it on and record what they did; approving a draft, editing it and sending it
-to the customer happen in the tools they already use. The alternative was an
-approve-edit-reject flow here, with delivery, and the honest position is that
-it was not built rather than that it is implied by a diagram.
+it on and record what they did; composing and sending a reply happen in the
+tools they already use. The alternative was an author-review-deliver flow
+here, and the honest position is that it was not built rather than that it is
+implied by a diagram.
 
 
-Each request persists its intent, risk flags, source plan, evidence
-references, reliability factors and route, whether or not a customer ever sees
-a response.
+Each request persists its source plan, route, reasons and the words sent, plus
+its intent when one was established. Evidence references and reliability
+factors are added only after evidence was assessed. Empty fields on an earlier
+triage outcome say that the request never reached that stage; filling them
+would invent an analysis that did not happen.
 
 A reason code accompanies every outcome except a direct answer. That exception
 is deliberate. A reason names what stopped a request from being answered
 normally, and an answer given normally was stopped by nothing; a code invented
 to fill the column would be counted alongside the real ones and would make
 "how often do we escalate for missing coverage" a question about how many
-requests succeeded. What explains a delivery is the factor record, which is
-kept for every outcome and is where the case for sending it actually lives.
+requests succeeded. What explains a direct delivery is the factor record,
+which is present for every answer and is where the case for sending it actually
+lives. An outcome reached before evidence assessment has no invented rating;
+its route and reason explain why it stopped.
 
 This happens before delivery. A response that reached a customer without a
 record of why is the one case that cannot be investigated afterwards, and
@@ -536,9 +556,10 @@ is exercised.
 So the honest statement is narrower than the original: **this project has one
 external boundary, not two.** Commerce keeps the same protocol, the same
 failure taxonomy and the same substitutable tests, which is what an HTTP
-client would need in order to be dropped in — the seam is built and nothing
-is behind it. That is a smaller claim than the one this document made before,
-and it is the one the code supports.
+client would need in order to be dropped in. The external seam is built, but
+only the local `DemoStorefront` sits behind it today; no HTTP client is
+connected. That is a smaller claim than the one this document made before, and
+it is the one the code supports.
 
 
 ### The model classification that was built and then removed
@@ -614,8 +635,17 @@ emptiness is a result rather than an omission.
 
 ## Scope
 
-Six vertical slices: product information, return policy, order status,
-payment dispute, ambiguous request, and a medium-confidence review path. A
-small bilingual corpus, not a full parallel translation.
+Customer-visible paths work end to end for return policy in both languages,
+and for shipping policy in English. Asking about delivery in French reaches a
+person: nothing approved covers it, and the coverage check is what stops the
+returns entry from answering in its place. Ambiguous-request clarifications
+and mandatory escalations also work end to end. A medium-confidence retrieval
+result is correctly held for internal review.
 
-Six things that work end to end are worth more than twenty that half-work.
+The commerce path implements ownership-safe lookup and reliability assessment
+for order status, refund status and product availability. A commerce request
+that finds its evidence stops at internal review: the response library has no
+approved customer wording for those structured records.
+
+The knowledge base is a small bilingual corpus, not a full parallel
+translation.

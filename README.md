@@ -5,8 +5,9 @@
 <h1 align="center">DornaShop Support Agent</h1>
 
 <p align="center">
-  An evidence-grounded support API: every answer cites the approved policy it
-  came from, and anything it cannot ground is routed to a person instead.
+  An evidence-grounded support API: every direct answer cites the approved
+  evidence it came from; requests it cannot safely answer are clarified, held
+  for review or escalated.
 </p>
 
 
@@ -23,13 +24,52 @@ The agent's design and the reasoning behind it are in
 - **JWT Authentication**: Short-lived access tokens and rotating, revocable refresh tokens
 - **SQLAlchemy with Async**: Fully async database operations using SQLAlchemy 2.0+
 - **Alembic Migrations**: Database schema migrations with Alembic
-- **Role Model and Authorization Foundation**: Database-backed `customer`, `support_agent` and `admin` roles, with staff enforcement available but not yet required by any endpoint
+- **Role Model and Staff Authorization**: Database-backed `customer`, `support_agent` and `admin` roles, with the case queue restricted to staff
 - **Versioned API**: Public application routes are grouped under `/api/v1`
-- **Docker Development Workflow**: Containerized local setup; see the Docker section for current limitations
+- **Docker Workflows**: Containerized development and production topologies
 - **Developer-friendly**: Auto-reload, debugging, and development tools
 - **Validated Configuration**: Namespaced settings with production secret and CORS safeguards
 - **Grounded Answers**: Every customer-facing sentence is approved, versioned and content-hashed; figures come from structured claims, never from prose
-- **Four Honest Outcomes**: Answer, clarify, escalate or hold for review, each with a reason code, a rendered message and a recorded case
+- **Four Honest Outcomes**: Answer, clarify, escalate or hold for review, with a machine-readable reason for every non-answer, an approved sentence for whoever reads it, and a recorded case
+
+## Architecture at a glance
+
+```mermaid
+flowchart LR
+    REQUEST[Customer request] --> API[FastAPI route]
+    API --> SERVICE[SupportAgent]
+    SERVICE --> TRIAGE[Risk and intent triage]
+    TRIAGE -->|clarify or escalate| OUTCOME[Typed outcome]
+    TRIAGE -->|proceed| PLAN[Source plan]
+    PLAN --> SOURCE[Policy index or commerce gateway]
+    SOURCE -->|no usable record| OUTCOME
+    SOURCE -->|evidence| GATES[Validity and reliability gates]
+    GATES --> OUTCOME
+    OUTCOME --> CASE[(Case and audit record)]
+    CASE --> RESPONSE[HTTP response]
+    STAFF[Staff case API] --> CASE
+```
+
+The API layer authenticates the caller and constructs the request context.
+`SupportAgent` owns the sequence: triage first, evidence only after the request
+is placed, then a typed outcome. Every outcome is recorded before the response
+is returned. Staff work review and escalation cases through separate protected
+routes.
+
+| Layer | Responsibility | Location |
+|---|---|---|
+| HTTP API | Customer, authentication, health and staff case routes; request dependencies | [`app/api/`](app/api/) |
+| Application services | Support orchestration, authentication operations and case persistence | [`app/services/`](app/services/) |
+| Decision engine | Risk and intent triage, source policy, retrieval, evidence checks, reliability and approved wording | [`app/agent/`](app/agent/) |
+| Persistence models | SQLAlchemy records for users, tokens and support cases | [`app/models/`](app/models/) |
+| Database session | Async engine, session lifecycle and the declarative base | [`app/db/`](app/db/) |
+| API schemas | Pydantic request, response and staff case contracts | [`app/schemas/`](app/schemas/) |
+| Core | Validated settings, password handling and token security | [`app/core/`](app/core/) |
+| Database migrations | Alembic environment and versioned schema changes | [`alembic/`](alembic/) |
+
+**Best entry point:** start with [`app/services/support.py`](app/services/support.py),
+whose `SupportAgent.answer` method shows the complete request sequence and the
+boundaries between these layers.
 
 ## Project Structure
 
@@ -37,6 +77,7 @@ The agent's design and the reasoning behind it are in
 .
 ├── alembic/                 # Database migrations
 ├── app/                     # Main application package
+│   ├── agent/               # Support decision engine and approved content
 │   ├── api/                 # API endpoints
 │   ├── core/                # Core functionality (config, security)
 │   ├── db/                  # Database session and base
@@ -46,7 +87,7 @@ The agent's design and the reasoning behind it are in
 │   └── utils/               # Utility functions
 ├── docker-compose.yml       # Baseline local/demo Compose configuration
 ├── docker-compose.dev.yml   # Local development configuration with reload
-├── Dockerfile               # Development-oriented application image
+├── Dockerfile               # Multi-stage, non-root runtime image
 ├── alembic.ini              # Alembic configuration
 ├── .env.example             # Documented configuration template
 ├── docs/architecture.md     # Support-agent design decisions
@@ -66,9 +107,6 @@ The agent's design and the reasoning behind it are in
 
 ### Using Docker for local development
 
-> **Development only:** The current image and Compose configurations are for
-> local development and demonstrations. They are not production-ready yet.
-
 1. Clone the repository:
    ```bash
    git clone <your-repo-url>
@@ -78,10 +116,10 @@ The agent's design and the reasoning behind it are in
 2. Start the application with Docker Compose:
    ```bash
    # Development with auto-reload
-   docker-compose -f docker-compose.dev.yml up --build
+   docker compose -f docker-compose.dev.yml up --build
 
    # Baseline local run without auto-reload
-   docker-compose up --build
+   docker compose up --build
    ```
 
 3. The API will be available at http://localhost:8000
@@ -119,12 +157,12 @@ The agent's design and the reasoning behind it are in
 
 4. Run migrations:
    ```bash
-   alembic upgrade head
+   uv run alembic upgrade head
    ```
 
 5. Create the demo customer, so the commerce questions have records to reach:
    ```bash
-   python -m app.seed
+   uv run python -m app.seed
    ```
 
    It prints an account and the references that account can ask about. The
@@ -134,10 +172,10 @@ The agent's design and the reasoning behind it are in
 
 6. Start the application:
    ```bash
-   uvicorn main:app --reload
+   uv run uvicorn main:app --reload
    ```
 
-6. The API will be available at http://localhost:8000
+7. The API will be available at http://localhost:8000
 
 ## API Documentation
 
@@ -177,10 +215,10 @@ Authorization: Bearer <access token>
 }
 ```
 
-Those two are references the seeded demo customer can actually reach; `python
--m app.seed` prints the current list. A question about an order or a refund
-needs `order_id`, and one about stock needs `product_reference` — without
-them the reply asks for the missing one rather than guessing.
+Those two are references the seeded demo customer can actually reach; `uv run
+python -m app.seed` prints the current list. A question about an order or a
+refund needs `order_id`, and one about stock needs `product_reference` —
+without them the reply asks for the missing one rather than guessing.
 
 Four things can come back, and **all of them are `200`**. Being asked a
 question, being passed to a person and being held for checking are decisions
@@ -189,6 +227,9 @@ kept for a malformed body (`422`) and an unknown caller (`401`).
 
 Every reply carries a `case`, which is the record the decision was written
 into before the reply was sent.
+
+The examples below show every response field. A `null` or empty value means
+the decision was made before that information was established.
 
 **`direct_response`** — answered from approved wording, with the evidence it
 rests on:
@@ -203,7 +244,11 @@ rests on:
     {
       "source": "knowledge_base",
       "reference": "kb:returns.standard.en.v1",
-      "content_hash": "sha256:..."
+      "content_hash": "sha256:...",
+      "provider": null,
+      "observed": null,
+      "observed_at": null,
+      "synthetic": null
     }
   ],
   "wording": ["say:return_window.en.v1@sha256:..."],
@@ -224,7 +269,8 @@ rests on:
   "case": "9c8e2f1a-...",
   "reason": "missing_order_id",
   "message": "Please send us your order number and we will look it up.",
-  "wording": "say:ask_for_order_number.en.v1@sha256:..."
+  "wording": "say:ask_for_order_number.en.v1@sha256:...",
+  "intent": "order_status"
 }
 ```
 
@@ -237,7 +283,9 @@ rests on:
   "reasons": ["payment_dispute"],
   "message": "We have passed this to a member of our team to handle personally.",
   "wording": "say:handed_to_a_specialist.en.v1@sha256:...",
-  "reliability": null
+  "reliability": null,
+  "citations": [],
+  "intent": null
 }
 ```
 
@@ -260,10 +308,11 @@ with their message is true.
 - `POST /api/v1/support/cases/{reference}/claim` - Put your name against one
 - `POST /api/v1/support/cases/{reference}/resolve` - Close it, recording what was done
 
-A case carries what the decision rested on — the message, the order number and
-product reference the customer supplied, the sources the request was permitted
-to read, the route and reasons, the words they received, the evidence cited and
-the rating each dimension earned — so nobody has to write back for something
+A case carries what the decision had available — the message, the order number
+and product reference the customer supplied, the sources the request was
+permitted to read, the route and reasons, and the words they received. It also
+keeps the intent when one was established and, when evidence was assessed, its
+citations and per-factor ratings, so nobody has to write back for something
 already given.
 
 Claiming and resolving are conditional writes, so two people cannot both be
@@ -322,9 +371,11 @@ startup:
 - a readable window shorter than the freshness window, which describes no
   scale a reading could be rated on.
 
-With the invented records switched off, nothing answers order, refund or
-stock questions, and they wait for a colleague. That is the honest state
-until a client for a real shop is written; see `docs/architecture.md`.
+With the invented records switched off, a commerce request that passes triage
+cannot reach its required source and waits for a colleague. Missing references
+still produce a clarification, and an unlinked commerce account still
+escalates. That is the honest state until a client for a real shop is written;
+see `docs/architecture.md`.
 
 ## Roles
 
@@ -341,15 +392,15 @@ effect even while an older access token still exists.
 ### Running Tests
 
 ```bash
-pytest
+uv run pytest
 ```
 
 ### Continuous Integration
 
-Every push to `main` and every pull request runs the same gate as
-`pre-commit`, plus two checks a local run cannot cover: the declared
-dependency floors are installed and imported (`--resolution lowest-direct`),
-and the migrations are applied and reversed. See
+Every push to `main` and every pull request runs linting, formatting, type
+checks and tests. CI also installs and imports the declared dependency floors
+(`--resolution lowest-direct`), applies and reverses the migrations, and
+exercises the production image and Compose stack. See
 [.github/workflows/ci.yml](.github/workflows/ci.yml).
 
 ### Code Quality Tools
@@ -361,10 +412,10 @@ The project uses several tools to ensure code quality:
 - **pre-commit**: Runs both on every commit
 
 ```bash
-ruff check .          # lint
-ruff format .         # format
-mypy .                # type check
-pre-commit install    # run all of the above on each commit
+uv run ruff check .        # lint
+uv run ruff format .       # format
+uv run mypy .              # type check
+uv run pre-commit install  # run all of the above on each commit
 ```
 
 ## Database
@@ -376,13 +427,13 @@ The application supports SQLite for development and PostgreSQL for production. T
 To create a new migration after changing models:
 
 ```bash
-alembic revision --autogenerate -m "Description of changes"
+uv run alembic revision --autogenerate -m "Description of changes"
 ```
 
 To apply migrations:
 
 ```bash
-alembic upgrade head
+uv run alembic upgrade head
 ```
 
 ## Docker
@@ -454,16 +505,27 @@ environment responsibilities.
 
 Deliberate, and recorded rather than hidden:
 
-- **Staff authorization is defined but unused.** The `support_agent` and `admin`
-  roles and the staff dependency exist; no endpoint requires them yet. They are
-  in place for the support-agent work that follows.
+- **Commerce records are invented.** There is no client for a real shop. Every
+  row is flagged synthetic through the API and into the stored case, and
+  production refuses to start with them enabled.
+- **Conversation history is not connected.** `Source.HISTORY` is declared as
+  contextual in the decision profiles, but no adapter supplies it and no
+  context assembler resolves references from prior turns.
+- **Commerce records have no approved answer wording.** When an order, refund
+  or availability record passes the evidence gates strongly enough for a
+  direct answer, the request is held for internal review instead.
+- **There is no structured logging, and no metrics or traces.** The service
+  exposes only conventional application logs.
+- **Requests are not rate-limited.** Authentication and support endpoints do
+  not throttle repeated calls by client or account.
+- **`/health` is liveness only.** It reports that the API process can respond;
+  it does not check whether the database is reachable.
 - **Refresh tokens are never pruned.** Revoked and expired rows accumulate. A
   periodic cleanup is needed before this runs for any length of time.
 - **API-token authentication writes on every request.** Each call updates
   `last_used_at`, so a read costs a write.
 - **Logout requires a live access token.** A client whose access token has
   expired cannot revoke its still-valid refresh token without refreshing first.
-- The Docker limitations listed above.
 
 ## Acknowledgements
 
