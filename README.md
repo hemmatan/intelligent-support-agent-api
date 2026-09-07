@@ -491,6 +491,21 @@ environment responsibilities.
 
 Deliberate, and recorded rather than hidden:
 
+- **Commerce records are invented.** There is no client for a real shop. Every
+  row is flagged synthetic through the API and into the stored case, and
+  production refuses to start with them enabled.
+- **Conversation history is not connected.** `Source.HISTORY` is declared as
+  contextual in the decision profiles, but no adapter supplies it and no
+  context assembler resolves references from prior turns.
+- **Commerce records have no approved answer wording.** When an order, refund
+  or availability record passes the evidence gates strongly enough for a
+  direct answer, the request is held for internal review instead.
+- **There is no structured logging, and no metrics or traces.** The service
+  exposes only conventional application logs.
+- **Requests are not rate-limited.** Authentication and support endpoints do
+  not throttle repeated calls by client or account.
+- **`/health` is liveness only.** It reports that the API process can respond;
+  it does not check whether the database is reachable.
 - **Refresh tokens are never pruned.** Revoked and expired rows accumulate. A
   periodic cleanup is needed before this runs for any length of time.
 - **API-token authentication writes on every request.** Each call updates
