@@ -115,10 +115,10 @@ boundaries between these layers.
 2. Start the application with Docker Compose:
    ```bash
    # Development with auto-reload
-   docker-compose -f docker-compose.dev.yml up --build
+   docker compose -f docker-compose.dev.yml up --build
 
    # Baseline local run without auto-reload
-   docker-compose up --build
+   docker compose up --build
    ```
 
 3. The API will be available at http://localhost:8000
@@ -156,12 +156,12 @@ boundaries between these layers.
 
 4. Run migrations:
    ```bash
-   alembic upgrade head
+   uv run alembic upgrade head
    ```
 
 5. Create the demo customer, so the commerce questions have records to reach:
    ```bash
-   python -m app.seed
+   uv run python -m app.seed
    ```
 
    It prints an account and the references that account can ask about. The
@@ -171,10 +171,10 @@ boundaries between these layers.
 
 6. Start the application:
    ```bash
-   uvicorn main:app --reload
+   uv run uvicorn main:app --reload
    ```
 
-6. The API will be available at http://localhost:8000
+7. The API will be available at http://localhost:8000
 
 ## API Documentation
 
@@ -214,10 +214,10 @@ Authorization: Bearer <access token>
 }
 ```
 
-Those two are references the seeded demo customer can actually reach; `python
--m app.seed` prints the current list. A question about an order or a refund
-needs `order_id`, and one about stock needs `product_reference` — without
-them the reply asks for the missing one rather than guessing.
+Those two are references the seeded demo customer can actually reach; `uv run
+python -m app.seed` prints the current list. A question about an order or a
+refund needs `order_id`, and one about stock needs `product_reference` —
+without them the reply asks for the missing one rather than guessing.
 
 Four things can come back, and **all of them are `200`**. Being asked a
 question, being passed to a person and being held for checking are decisions
@@ -378,7 +378,7 @@ effect even while an older access token still exists.
 ### Running Tests
 
 ```bash
-pytest
+uv run pytest
 ```
 
 ### Continuous Integration
@@ -398,10 +398,10 @@ The project uses several tools to ensure code quality:
 - **pre-commit**: Runs both on every commit
 
 ```bash
-ruff check .          # lint
-ruff format .         # format
-mypy .                # type check
-pre-commit install    # run all of the above on each commit
+uv run ruff check .        # lint
+uv run ruff format .       # format
+uv run mypy .              # type check
+uv run pre-commit install  # run all of the above on each commit
 ```
 
 ## Database
@@ -413,13 +413,13 @@ The application supports SQLite for development and PostgreSQL for production. T
 To create a new migration after changing models:
 
 ```bash
-alembic revision --autogenerate -m "Description of changes"
+uv run alembic revision --autogenerate -m "Description of changes"
 ```
 
 To apply migrations:
 
 ```bash
-alembic upgrade head
+uv run alembic upgrade head
 ```
 
 ## Docker
