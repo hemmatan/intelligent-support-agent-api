@@ -21,7 +21,7 @@ Deciding which is the hard part.
 |---|---|
 | Direct response | Evidence is strong enough to answer without supervision |
 | Clarification | The customer has to tell us something first |
-| Internal review | Nothing is sent yet. Staff review a draft, retry a failed source, or redirect |
+| Internal review | Nothing is sent yet. Staff inspect the evidence, retry a failed source, or redirect |
 | Human escalation | Automation must not proceed |
 
 A missing order number, a source outage and a fraud report all mean "I can't
@@ -60,7 +60,7 @@ flowchart TD
     HIST --> EV
 
     EV --> AVAIL{Required sources usable?}
-    AVAIL -->|no| REV[Internal queue<br/>retry, draft, or staff writes it]
+    AVAIL -->|no| REV[Internal queue<br/>inspect evidence, retry source, or redirect]
     AVAIL -->|yes| PLAN[Build typed response plan<br/>material claims with evidence references]
 
     PLAN --> GATE{Structural validity gates}
@@ -264,8 +264,9 @@ reads as a probability:
 "reliability": { "level": "acceptable", "ordinal": 2, "scale": 3 }
 ```
 
-`REVIEW_ONLY` means a usable draft exists. `UNUSABLE` means no automation
-output is worth showing anyone, and a human ticket is created instead.
+`REVIEW_ONLY` means the evidence is useful but needs a colleague's judgement.
+`UNUSABLE` means automation must not answer, and a human ticket is created
+instead.
 
 `READY` and `ACCEPTABLE` share a route today. They stay distinct because the
 difference is worth measuring — how often answers go out on pristine evidence
@@ -392,17 +393,15 @@ definite answer where a similarity has only a degree.
 Intent and risk are decided by listed phrases, with no model in either path.
 `IntentClassifier` describes the shape one would have to take to be admitted
 and nothing implements it, which is a conclusion rather than an unfinished
-task. A generative model writes staff-only drafts and history summaries.
+task. No generative model is wired into the service.
 
 No model is a source of business facts, and none writes to a customer.
 
-That holds through review. A staff member reading a model draft is not
-approving prose for delivery — the draft is an aid to reading the evidence.
-Approving means confirming the evidence, the template and the slot values,
-after which the response is rendered from the template like any other. Staff
-who want to say something the templates cannot express answer through the
-human channel, which is not agent output. There is no path from generated
-prose to a customer.
+That holds through review. When evidence was assessed, a staff member receives
+it with the citations and per-factor ratings that explain why automation
+stopped. This API lets them claim the case and record how it was resolved; it
+does not draft, edit, approve or deliver a reply. If staff answer the customer,
+they do so through the human channel outside this service.
 
 Sensitive-situation detection is the deterministic rules alone. Nothing a
 model returns can raise or lower a risk, because no model is asked. What that
@@ -483,10 +482,10 @@ routing correctness.
 ## Every decision is recorded before anything is sent
 
 What a member of staff does next is outside this API. They see the case, take
-it on and record what they did; approving a draft, editing it and sending it
-to the customer happen in the tools they already use. The alternative was an
-approve-edit-reject flow here, with delivery, and the honest position is that
-it was not built rather than that it is implied by a diagram.
+it on and record what they did; composing and sending a reply happen in the
+tools they already use. The alternative was an author-review-deliver flow
+here, and the honest position is that it was not built rather than that it is
+implied by a diagram.
 
 
 Each request persists its intent, risk flags, source plan, evidence
