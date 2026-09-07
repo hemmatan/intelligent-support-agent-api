@@ -31,12 +31,52 @@ The agent's design and the reasoning behind it are in
 - **Grounded Answers**: Every customer-facing sentence is approved, versioned and content-hashed; figures come from structured claims, never from prose
 - **Four Honest Outcomes**: Answer, clarify, escalate or hold for review, with a machine-readable reason for every non-answer, an approved sentence for whoever reads it, and a recorded case
 
+## Architecture at a glance
+
+```mermaid
+flowchart LR
+    REQUEST[Customer request] --> API[FastAPI route]
+    API --> SERVICE[SupportAgent]
+    SERVICE --> TRIAGE[Risk and intent triage]
+    TRIAGE -->|clarify or escalate| OUTCOME[Typed outcome]
+    TRIAGE -->|proceed| PLAN[Source plan]
+    PLAN --> SOURCE[Policy index or commerce gateway]
+    SOURCE -->|no usable record| OUTCOME
+    SOURCE -->|evidence| GATES[Validity and reliability gates]
+    GATES --> OUTCOME
+    OUTCOME --> CASE[(Case and audit record)]
+    CASE --> RESPONSE[HTTP response]
+    STAFF[Staff case API] --> CASE
+```
+
+The API layer authenticates the caller and constructs the request context.
+`SupportAgent` owns the sequence: triage first, evidence only after the request
+is placed, then a typed outcome. Every outcome is recorded before the response
+is returned. Staff work review and escalation cases through separate protected
+routes.
+
+| Layer | Responsibility | Location |
+|---|---|---|
+| HTTP API | Customer, authentication, health and staff case routes; request dependencies | [`app/api/`](app/api/) |
+| Application services | Support orchestration, authentication operations and case persistence | [`app/services/`](app/services/) |
+| Decision engine | Risk and intent triage, source policy, retrieval, evidence checks, reliability and approved wording | [`app/agent/`](app/agent/) |
+| Persistence models | SQLAlchemy records for users, tokens and support cases | [`app/models/`](app/models/) |
+| Database session | Async engine, session lifecycle and the declarative base | [`app/db/`](app/db/) |
+| API schemas | Pydantic request, response and staff case contracts | [`app/schemas/`](app/schemas/) |
+| Core | Validated settings, password handling and token security | [`app/core/`](app/core/) |
+| Database migrations | Alembic environment and versioned schema changes | [`alembic/`](alembic/) |
+
+**Best entry point:** start with [`app/services/support.py`](app/services/support.py),
+whose `SupportAgent.answer` method shows the complete request sequence and the
+boundaries between these layers.
+
 ## Project Structure
 
 ```
 .
 ├── alembic/                 # Database migrations
 ├── app/                     # Main application package
+│   ├── agent/               # Support decision engine and approved content
 │   ├── api/                 # API endpoints
 │   ├── core/                # Core functionality (config, security)
 │   ├── db/                  # Database session and base
