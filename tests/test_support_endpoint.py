@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agent.answering import Sources
 from app.agent.demo import DemoStorefront
 from app.agent.enquiry import MAX_MESSAGE, Enquiry
+from app.agent.facts import Fact
 from app.agent.intent import ClassifierUnavailableError, Intent
 from app.agent.knowledge import Locale, load_corpus
 from app.agent.messages import load_messages
@@ -693,6 +694,13 @@ async def test_a_request_held_here_arrives_with_what_it_was_judged_on(
 
 
 SHOP_NOW = datetime(2026, 9, 7, 12, 0, tzinfo=UTC)
+# Read off the shipped file: a digest written out by hand would pass
+# after somebody edited the sentence it is supposed to be pinning.
+STOCK_DIGEST = next(
+    template.content_hash
+    for template in load_templates()
+    if template.fact is Fact.STOCK_AVAILABILITY and template.locale == "en"
+)
 
 
 @pytest.mark.asyncio
@@ -914,3 +922,67 @@ async def test_a_source_nobody_connected_still_records_the_question(
         )
     ).scalar_one()
     assert stored.intent == "order_status"
+
+
+@pytest.mark.asyncio
+async def test_a_stock_question_is_answered_over_http_and_written_down(
+    async_client: AsyncClient,
+    signed_in: Callable[..., object],
+    session: AsyncSession,
+) -> None:
+    """The one journey that reaches a customer without going through policy.
+
+    Proved here rather than only at the planner, because a reply and the row
+    a colleague opens are two surfaces built from one object, and every part
+    of this that has been checked on one surface alone turned out to be
+    checked on the surface that could not fail.
+    """
+    shop = SupportAgent(
+        sources=Sources(
+            knowledge_base=PolicyIndex(load_corpus()),
+            commerce=DemoStorefront(now=lambda: SHOP_NOW),
+            now=lambda: SHOP_NOW,
+        ),
+        templates=load_templates(),
+        messages=load_messages(),
+    )
+    app.dependency_overrides[support_agent] = lambda: shop
+    try:
+        headers = await signed_in(commerce_id=1)  # type: ignore[misc]
+        response = await async_client.post(
+            MESSAGES,
+            json={"message": "Is it still available?", "product_reference": "12"},
+            headers=headers,
+        )
+    finally:
+        app.dependency_overrides.pop(support_agent, None)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["route"] == "direct_response"
+    assert body["intent"] == "product_availability"
+    assert body["reply"] == "That item is in stock."
+    assert body["wording"] == ["say:stock_availability.en.v1@" + STOCK_DIGEST]
+
+    (cited,) = body["citations"]
+    assert cited["source"] == "commerce"
+    assert cited["reference"] == "demo:product:12"
+    assert cited["provider"] == "demo"
+    assert cited["synthetic"] is True
+    assert cited["observed"] == "live"
+    assert body["reliability"]["level"] == "ready"
+    assert body["reliability"]["factors"]["freshness"] == "ready"
+
+    stored = (
+        await session.execute(
+            select(SupportCase).where(SupportCase.reference == body["case"])
+        )
+    ).scalar_one()
+    assert stored.intent == "product_availability"
+    assert stored.route == "direct_response"
+    assert stored.sent == "That item is in stock."
+    assert stored.reasons == []
+    assert [c["reference"] for c in stored.citations] == ["demo:product:12"]
+    assert [c["synthetic"] for c in stored.citations] == [True]
+    assert stored.wording == body["wording"]
+    assert stored.reliability == body["reliability"]
