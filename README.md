@@ -379,22 +379,29 @@ installed outside the runtime stage, which receives only the virtual
 environment, application code, migrations, startup script and served assets.
 
 The runtime process uses the dedicated `dornashop` account with UID/GID 10001.
-It owns the working directory so the local SQLite default can create its
-database; dependencies and application files remain root-owned and read-only
-to the process.
+Dependencies and application files remain root-owned and read-only to that
+account. Local and development Compose mount source code read-only and keep
+SQLite in a named volume at `/var/lib/dornashop`, the image's only writable
+application-state directory. Production uses PostgreSQL instead.
 
 Docker probes `/health` from inside the container every 30 seconds, after a
 10-second startup grace period. The probe uses Python's standard library, so
 the image does not carry a separate HTTP client solely for health checks.
 
-After migrations succeed, `start.sh` replaces its shell process with Uvicorn.
-Uvicorn therefore runs as PID 1 and receives container termination signals
-directly during a graceful stop.
+`start.sh` does not modify the database. It only replaces its shell process
+with Uvicorn, which therefore runs as PID 1 and receives container termination
+signals directly during a graceful stop.
 
-The production Compose stack starts PostgreSQL with a named volume, waits for
-the database health check, runs migrations as a one-shot service, and starts
-the API only after migration succeeds. The API container uses the image's
-health check and has no source-code bind mount.
+The baseline and production Compose stacks run migrations in a one-shot
+service and start the API only after that service succeeds. This gives schema
+changes one owner instead of running them in every API replica. The development
+script still migrates automatically before its reload server because that path
+is deliberately single-replica. Running the image without Compose requires an
+explicit `alembic upgrade head` deployment step before the API starts.
+
+The production stack also starts PostgreSQL with a named volume and waits for
+its health check before migrating. The API container uses the image's health
+check and has no source-code bind mount.
 
 CI builds the production runtime image and starts this complete Compose stack
 on an ephemeral host port. It checks the runtime user and dependency boundary,

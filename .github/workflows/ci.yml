@@ -70,6 +70,13 @@ jobs:
           set -Eeuo pipefail
           test "$(docker image inspect dornashop-support:production --format '{{.Config.User}}')" = dornashop
           test "$(docker run --rm dornashop-support:production id -u)" -ne 0
+          docker run --rm dornashop-support:production \
+            sh -eu -c '
+              test ! -w /app
+              test -w /var/lib/dornashop
+              test "$DORNASHOP_DB_NAME" = /var/lib/dornashop/db.sqlite3
+              ! grep -q alembic ./start.sh
+            '
           docker run --rm dornashop-support:production python -c \
             "import aiosqlite, alembic, asyncpg, fastapi, httpx, main, sqlalchemy, uvicorn"
           docker run --rm dornashop-support:production python -c \

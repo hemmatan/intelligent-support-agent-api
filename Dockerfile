@@ -16,6 +16,7 @@ FROM python:3.11-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    DORNASHOP_DB_NAME=/var/lib/dornashop/db.sqlite3 \
     PATH="/opt/venv/bin:$PATH"
 
 WORKDIR /app
@@ -23,7 +24,8 @@ WORKDIR /app
 RUN groupadd --gid 10001 dornashop \
     && useradd --uid 10001 --gid 10001 --no-create-home \
         --home-dir /app --shell /usr/sbin/nologin --no-log-init dornashop \
-    && chown dornashop:dornashop /app
+    && install --directory --owner=dornashop --group=dornashop \
+        /var/lib/dornashop
 
 COPY --from=builder /opt/venv /opt/venv
 COPY alembic ./alembic
